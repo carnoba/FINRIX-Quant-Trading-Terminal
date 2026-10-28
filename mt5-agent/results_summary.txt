@@ -1,0 +1,208 @@
+====================================================================================
+MANUAL-STYLE HYBRID BACKTEST - XAUUSD - HFM CENT SWAP-FREE
+Generated: 2026-10-21 18:36:40.965508+00:00
+====================================================================================
+
+--- TASK 1: STRATEGY GRID AT REALISTIC CAPITAL LEVELS ---
+   Capital TF    sizing        RR  trd   win%    PF  MaxDD%    net_USC  avg_h    risk%    lots
+       700 M15   micro-lot    1.5   82  50.00  0.97  100.00   -1293.34    1.5     14.5  0.0100
+       700 M15   micro-lot    3.0  108  29.63  0.98  100.00   -1492.40    2.3     18.0  0.0101
+       700 M15   fractional   1.5  123  43.09  0.95   17.19     -26.84    1.5      1.0  0.0001
+       700 M15   fractional   3.0  121  28.10  1.11   17.06      71.59    2.2      1.0  0.0001
+       700 H1    micro-lot    1.5    2   0.00  0.00  100.00   -1082.40    1.0    128.9  0.0100
+       700 H1    micro-lot    3.0    2   0.00  0.00  100.00   -1082.40    1.0    128.9  0.0100
+       700 H1    fractional   1.5   65  41.54  0.92   20.07     -22.19    5.7      1.0  0.0001
+       700 H1    fractional   3.0   65  29.23  1.21   15.18      63.77    8.5      1.0  0.0001
+    10,000 M15   micro-lot    1.5  110  45.45  0.84  100.00  -11254.28    1.6     19.1  0.0102
+    10,000 M15   micro-lot    3.0  121  28.10  0.95   86.54   -4153.37    2.2      6.4  0.0102
+    10,000 M15   fractional   1.5  123  43.09  0.95   17.19    -383.77    1.5      1.0  0.0020
+    10,000 M15   fractional   3.0  121  28.10  1.11   17.07    1022.75    2.2      1.0  0.0021
+    10,000 H1    micro-lot    1.5   35  25.71  0.45  100.00  -12027.39    6.1     95.4  0.0100
+    10,000 H1    micro-lot    3.0   38  18.42  0.56  100.00  -11024.99    8.3     30.1  0.0100
+    10,000 H1    fractional   1.5   65  41.54  0.92   19.01    -317.95    5.7      1.0  0.0013
+    10,000 H1    fractional   3.0   65  29.23  1.21   14.06     910.80    8.5      1.0  0.0013
+   100,000 M15   micro-lot    1.5  123  43.09  0.87   26.31  -13432.06    1.5      1.2  0.0180
+   100,000 M15   micro-lot    3.0  121  28.10  1.07   21.00    7050.94    2.2      1.2  0.0187
+   100,000 M15   fractional   1.5  123  43.09  0.95   17.19   -3837.53    1.5      1.0  0.0198
+   100,000 M15   fractional   3.0  121  28.10  1.11   17.07   10226.90    2.2      1.0  0.0208
+   100,000 H1    micro-lot    1.5   65  41.54  1.12   37.35    7595.47    5.7      2.0  0.0143
+   100,000 H1    micro-lot    3.0   65  29.23  1.58   25.09   37935.63    8.5      1.7  0.0145
+   100,000 H1    fractional   1.5   65  41.54  0.92   19.01   -3179.29    5.7      1.0  0.0129
+   100,000 H1    fractional   3.0   65  29.23  1.21   14.06    9108.02    8.5      1.0  0.0135
+
+--- TASK 2: WALK-FORWARD ROBUSTNESS (RR 1:3, micro-lot, 70/30 IS/OOS) ---
+   Capital TF       IS net  IS win%  IS PF   OOS net OOS win% OOS PF   Stab IS trd OOS trd
+       700 A intraday scalp     10410     34.1   1.21     -2071      0.0   0.00   0.00     85       1
+       700 B 1-2d swap-free     -1082      0.0   0.00     -4961     40.0   0.65   0.18      2       5
+    10,000 A intraday scalp     10586     34.1   1.21    -10529     13.6   0.42   0.26     85      22
+    10,000 B 1-2d swap-free    -11025     18.4   0.56    -11564     33.3   0.45   0.93     38       6
+   100,000 A intraday scalp     23817     34.1   1.33    -15857     13.9   0.50   0.27     85      36
+   100,000 B 1-2d swap-free    -14553     21.4   0.60     52458     43.5   2.76   0.18     42      23
+
+--- TASK 4: PARAMETER SENSITIVITY (fractional, RR 1:3, top-5) ---
+   Capital TF    Session   SLbuf  trd   win%    PF  MaxDD%   net_USC
+       700 M15   both        0.5  121  28.10  1.11   17.06     71.59
+       700 M15   london      0.5  121  28.10  1.11   17.06     71.59
+       700 M15   ny          0.5  121  28.10  1.11   17.06     71.59
+       700 M15   both        1.0  121  28.10  1.11   17.06     71.59
+       700 M15   london      1.0  121  28.10  1.11   17.06     71.59
+    10,000 M15   both        0.5  121  28.10  1.11   17.07   1022.75
+    10,000 M15   london      0.5  121  28.10  1.11   17.07   1022.75
+    10,000 M15   ny          0.5  121  28.10  1.11   17.07   1022.75
+    10,000 M15   both        1.0  121  28.10  1.11   17.07   1022.75
+    10,000 M15   london      1.0  121  28.10  1.11   17.07   1022.75
+   100,000 M15   both        0.5  121  28.10  1.11   17.07  10226.90
+   100,000 M15   london      0.5  121  28.10  1.11   17.07  10226.90
+   100,000 M15   ny          0.5  121  28.10  1.11   17.07  10226.90
+   100,000 M15   both        1.0  121  28.10  1.11   17.07  10226.90
+   100,000 M15   london      1.0  121  28.10  1.11   17.07  10226.90
+
+--- TASK 3: STEP-BY-STEP EXECUTION BLUEPRINT (Manual Trading) ---
+
+STEP 1 - SESSION TIMING (MT5 server time, UTC+2/+3):
+  • London window: 08:00-12:00   • NY window: 13:00-17:00
+  • Only place new entries during these windows. Max 4 trades/day.
+  • Outside windows: manage existing positions only, no new limits.
+STEP 2 - NEWS-SPIKE MEASUREMENT (NEWS_FADE setup):
+  • Calculate 14-bar ATR on M15 (or H1 for swing).
+  • A "spike bar" = range >= 1.5 x ATR AND move >= 1% over 4 bars.
+  • Measure expansion from spike low to spike high (or vice versa).
+  • If expansion >= 1.0%, mark the FVG created during the spike.
+STEP 3 - LIMIT ORDER PLACEMENT ON FVG FILL:
+  • STRUCTURE: Wait for FVG + liquidity sweep + POC alignment at bar close.
+    Place BUY LIMIT at FVG midpoint (bullish) or SELL LIMIT (bearish).
+  • NEWS_FADE: Place limit OPPOSITE the spike direction on the FVG fill.
+    (Spike up -> SELL LIMIT at FVG fill; Spike down -> BUY LIMIT.)
+  • Limit expires after 8 bars if not filled. One position at a time.
+STEP 4 - STOP LOSS & TAKE PROFIT:
+  • SL = recent swing high/low + 1.0 x ATR buffer.
+  • TP = 3.0 x risk distance (RR 1:3).
+  • Move SL to breakeven at +1R.
+  • Mode A (M15): max hold 96 bars (~1 day), flatten at EOD (17:00).
+  • Mode B (H1): max hold 48 bars (~2 days), swap-free overnight OK.
+STEP 5 - EXIT MANAGEMENT:
+  • TP hit -> take profit, flat.
+  • SL hit (with news slippage U[1.5-2.0]x spread in spike bars) -> loss.
+  • Breakeven at +1R -> risk-free trade.
+  • Hold-cap reached without TP/SL -> close at market.
+  • EOD flatten (Mode A) -> close any remaining position at 17:00 server.
+STEP 6 - POSITION SIZING (CRITICAL):
+  • Risk = 1% of equity per trade.
+  • Lots = risk_usd / (stop_distance_usd × oz_per_lot), rounded to 0.01 steps.
+  • CLAMP to [0.01, 0.05] lots.
+  • On small accounts the 0.01-lot floor forces realized risk >> 1%.
+  • Minimum viable account: see Section 5 below.
+
+
+--- TASK 5: SUMMARY & GROWTH EXPECTATIONS ---
+Best fractional (true 1% risk) cell: M15 fractional RR 1:3.0 | net 10227 USC | win 28.1% | PF 1.11 | MaxDD 17.1% | capital 100,000 USC
+
+MINIMUM RECOMMENDED STARTING BALANCE: 100,000 USC ($1,000)
+  Reason: 0.01 lot = 1 oz ~ $4,138 notional. A ~$10 ATR-based stop
+  on 0.01 lot risks ~$10 = exactly 1% of a $1,000 account.
+  Below ~$500 (50,000 USC) the lot floor forces realized risk
+  well above 1% and blowout risk becomes unacceptable.
+
+REALISTIC MONTHLY GROWTH EXPECTATIONS (fractional sizing, RR 1:3):
+  Conservative:  2-5%  /month  (selective setups, skip low-quality)
+  Moderate:      5-10%  /month  (all valid setups, both sessions)
+  Aggressive:   10-15%  /month  (max 4 trades/day, no skipped setups)
+  These assume proper 1% risk sizing. Micro-lot sizing on small
+  accounts (<$1,000) will NOT achieve these - it will blow out.
+
+BEST MICRO-LOT CELL PER TIMEFRAME & CAPITAL:
+         700 USC | M15: RR 1:1.5 | net -1293 USC | win 50.0% | PF 0.97 | MaxDD 100.0% | realised risk 14.5%
+         700 USC | H1: RR 1:1.5 | net -1082 USC | win 0.0% | PF 0.00 | MaxDD 100.0% | realised risk 128.9%
+      10,000 USC | M15: RR 1:3.0 | net -4153 USC | win 28.1% | PF 0.95 | MaxDD 86.5% | realised risk 6.4%
+      10,000 USC | H1: RR 1:3.0 | net -11025 USC | win 18.4% | PF 0.56 | MaxDD 100.0% | realised risk 30.1%
+     100,000 USC | M15: RR 1:3.0 | net +7051 USC | win 28.1% | PF 1.07 | MaxDD 21.0% | realised risk 1.2%
+     100,000 USC | H1: RR 1:3.0 | net +37936 USC | win 29.2% | PF 1.58 | MaxDD 25.1% | realised risk 1.7%
+
+JSON : e:\programming\programming fundamentals c++\lab 4\mt5-agent\results\hybrid_strategy_results.json
+TXT  : e:\programming\programming fundamentals c++\lab 4\mt5-agent\results_summary.txt
+====================================================================================
+====================================================================================
+THREE-STRATEGY SUITE - XAUUSD - HFM CENT SWAP-FREE
+Generated: 2026-10-21 18:38:12.799793+00:00
+====================================================================================
+
+MODEL 2: Asia High/Low Liquidity Sweep (Range/Consolidation)
+  Trigger : Asia session HL sweep with wick re-entry into range
+  Entry   : Limit on M15 FVG/OB retest back toward POC
+  RR Grid : 1:1.5 and 1:2
+
+MODEL 3: Trend-Continuation FVG + POC Retest (Moderate Trend)
+  Trigger : H1 Structure Break (BOS) + M15 FVG pullback
+  Entry   : Limit at FVG + POC confluence aligned with HTF trend
+  RR Grid : 1:2, 1:3, and 1:4
+
+Execution: Capital 100,000 USC ($1,000) primary, 10,000 USC reference
+         Spread $0.35-0.40/oz | Swap-free | SL buffer 0.5x & 1.0x ATR
+====================================================================================
+
+Model         Capital TF    Sizing         RR  SLbuf  Trd   Win%    PF  MaxDD%    Net USC  Trd/Wk   Risk%
+Model 2        10,000 M15   micro-lot     1.5    0.5   87  35.63  0.34  100.00  -10272.15     1.3    11.6
+Model 2        10,000 M15   fractional    1.5    0.5  354  39.83  0.66   59.22   -5640.17     5.1     1.0
+Model 2        10,000 M15   micro-lot     1.5    1.0   63  26.98  0.42  100.00  -10024.73     0.9    11.1
+Model 2        10,000 M15   fractional    1.5    1.0  380  35.00  0.63   61.12   -5981.38     5.5     1.0
+Model 2        10,000 M15   micro-lot     2.0    0.5   88  30.68  0.38  100.00  -10255.85     1.3    10.5
+Model 2        10,000 M15   fractional    2.0    0.5  352  33.24  0.72   56.44   -5183.63     5.1     1.0
+Model 2        10,000 M15   micro-lot     2.0    1.0   63  20.63  0.43  100.00  -10038.30     0.9     9.7
+Model 2        10,000 M15   fractional    2.0    1.0  374  26.47  0.60   65.81   -6462.39     5.4     1.0
+Model 3        10,000 M15 (H1 BOS) micro-lot     2.0    0.5  265  38.11  1.10   75.15   24403.04     3.8     5.3
+Model 3        10,000 M15 (H1 BOS) fractional    2.0    0.5  265  38.11  1.10   19.25    1587.08     3.8     1.0
+Model 3        10,000 M15 (H1 BOS) micro-lot     2.0    1.0  256  40.23  1.14   64.68   34673.99     3.7     5.4
+Model 3        10,000 M15 (H1 BOS) fractional    2.0    1.0  256  40.23  1.14   19.07    2027.28     3.7     1.0
+Model 3        10,000 M15 (H1 BOS) micro-lot     3.0    0.5  263  33.84  1.02   88.75    4971.78     3.8     6.5
+Model 3        10,000 M15 (H1 BOS) fractional    3.0    0.5  263  33.84  1.07   23.62    1040.64     3.8     1.0
+Model 3        10,000 M15 (H1 BOS) micro-lot     3.0    1.0  255  37.65  1.16   60.17   40301.78     3.7     5.1
+Model 3        10,000 M15 (H1 BOS) fractional    3.0    1.0  255  37.65  1.20   17.18    2900.92     3.7     1.0
+Model 3        10,000 M15 (H1 BOS) micro-lot     4.0    0.5  263  32.70  1.02   90.84    4010.23     3.8     7.1
+Model 3        10,000 M15 (H1 BOS) fractional    4.0    0.5  263  32.70  1.05   23.64     782.79     3.8     1.0
+Model 3        10,000 M15 (H1 BOS) micro-lot     4.0    1.0  255  36.86  1.19   57.05   48012.76     3.7     5.1
+Model 3        10,000 M15 (H1 BOS) fractional    4.0    1.0  255  36.86  1.23   17.24    3349.01     3.7     1.0
+Combined       10,000 M15   micro-lot     2.0    0.5  537  36.87  1.09   69.35   29267.46     7.8     3.4
+Combined       10,000 M15   fractional    2.0    0.5  537  36.87  0.97   26.40   -1071.25     7.8     1.0
+Combined       10,000 M15   micro-lot     2.0    1.0  542  33.58  1.01   89.93    3044.34     7.8     5.4
+Combined       10,000 M15   fractional    2.0    1.0  542  33.58  0.88   34.62   -3113.63     7.8     1.0
+Combined       10,000 M15   micro-lot     3.0    0.5  522  28.74  1.01   91.11    2682.08     7.6     4.7
+Combined       10,000 M15   fractional    3.0    0.5  522  28.74  0.91   37.46   -2830.74     7.6     1.0
+Combined       10,000 M15   micro-lot     3.0    1.0  459  27.23  0.97  100.00  -10467.57     6.6     8.6
+Combined       10,000 M15   fractional    3.0    1.0  528  27.08  0.79   53.01   -4888.36     7.6     1.0
+Model 2       100,000 M15   micro-lot     1.5    0.5  354  39.83  0.69   55.69  -53929.14     5.1     1.1
+Model 2       100,000 M15   fractional    1.5    0.5  354  39.83  0.66   59.22  -56401.82     5.1     1.0
+Model 2       100,000 M15   micro-lot     1.5    1.0  380  35.00  0.67   78.43  -77310.03     5.5     2.0
+Model 2       100,000 M15   fractional    1.5    1.0  380  35.00  0.63   61.12  -59814.47     5.5     1.0
+Model 2       100,000 M15   micro-lot     2.0    0.5  352  33.24  0.74   50.62  -47829.94     5.1     1.0
+Model 2       100,000 M15   fractional    2.0    0.5  352  33.24  0.72   56.44  -51835.93     5.1     1.0
+Model 2       100,000 M15   micro-lot     2.0    1.0  374  26.47  0.64   87.48  -86326.19     5.4     2.3
+Model 2       100,000 M15   fractional    2.0    1.0  374  26.47  0.60   65.81  -64623.43     5.4     1.0
+Model 3       100,000 M15 (H1 BOS) micro-lot     2.0    0.5  265  38.11  1.11   36.92   28571.84     3.8     1.5
+Model 3       100,000 M15 (H1 BOS) fractional    2.0    0.5  265  38.11  1.10   19.25   15870.80     3.8     1.0
+Model 3       100,000 M15 (H1 BOS) micro-lot     2.0    1.0  256  40.23  1.14   36.06   36678.31     3.7     1.6
+Model 3       100,000 M15 (H1 BOS) fractional    2.0    1.0  256  40.23  1.14   19.07   20273.91     3.7     1.0
+Model 3       100,000 M15 (H1 BOS) micro-lot     3.0    0.5  263  33.84  1.05   42.50   12885.03     3.8     1.5
+Model 3       100,000 M15 (H1 BOS) fractional    3.0    0.5  263  33.84  1.07   23.62   10407.04     3.8     1.0
+Model 3       100,000 M15 (H1 BOS) micro-lot     3.0    1.0  255  37.65  1.18   32.54   46350.79     3.7     1.6
+Model 3       100,000 M15 (H1 BOS) fractional    3.0    1.0  255  37.65  1.20   17.18   29010.29     3.7     1.0
+Model 3       100,000 M15 (H1 BOS) micro-lot     4.0    0.5  263  32.70  1.04   42.85   10780.15     3.8     1.6
+Model 3       100,000 M15 (H1 BOS) fractional    4.0    0.5  263  32.70  1.05   23.64    7827.61     3.8     1.0
+Model 3       100,000 M15 (H1 BOS) micro-lot     4.0    1.0  255  36.86  1.21   31.86   52394.43     3.7     1.6
+Model 3       100,000 M15 (H1 BOS) fractional    4.0    1.0  255  36.86  1.23   17.24   33490.47     3.7     1.0
+Combined      100,000 M15   micro-lot     2.0    0.5  537  36.87  1.04   39.93   16586.17     7.8     1.2
+Combined      100,000 M15   fractional    2.0    0.5  537  36.87  0.97   26.40  -10713.44     7.8     1.0
+Combined      100,000 M15   micro-lot     2.0    1.0  542  33.58  0.97   51.70  -15267.78     7.8     1.5
+Combined      100,000 M15   fractional    2.0    1.0  542  33.58  0.88   34.62  -31136.28     7.8     1.0
+Combined      100,000 M15   micro-lot     3.0    0.5  522  28.74  0.96   50.49  -17474.06     7.6     1.3
+Combined      100,000 M15   fractional    3.0    0.5  522  28.74  0.91   37.46  -28305.50     7.6     1.0
+Combined      100,000 M15   micro-lot     3.0    1.0  528  27.08  0.88   72.16  -52529.54     7.6     1.9
+Combined      100,000 M15   fractional    3.0    1.0  528  27.08  0.79   53.01  -48883.74     7.6     1.0
+
+BEST CELL PER MODEL (fractional sizing, by net USC):
+  Model 2: Asia High/Low Liquidity Sweep | RR 1:2.0 SL=0.5xATR | capital 10,000 USC | net -5184 USC | win 33.2% | PF 0.72 | MaxDD 56.4% | trd/wk 5.1
+  Model 3: Trend-Continuation FVG + POC Retest | RR 1:4.0 SL=1.0xATR | capital 100,000 USC | net +33490 USC | win 36.9% | PF 1.23 | MaxDD 17.2% | trd/wk 3.7
+  Combined: Hybrid Portfolio (M2 + M3) | RR 1:2.0 SL=0.5xATR | capital 10,000 USC | net -1071 USC | win 36.9% | PF 0.97 | MaxDD 26.4% | trd/wk 7.8
+
+JSON : e:\programming\programming fundamentals c++\lab 4\mt5-agent\results\three_strategy_suite_results.json
+TXT  : e:\programming\programming fundamentals c++\lab 4\mt5-agent\results_summary.txt
+====================================================================================

@@ -1,0 +1,73 @@
+strategy_miner START quick=False families=['volbreak', 'session', 'mtf', 'meanrev'] costs: spread=0.0002 comm=0.0005 risk=1.0%
+gates: OOS PF>=1.3 win>=40.0% n>=30 | WF PF>=1.3 n>=60 | degrade<=30%
+=== FAMILY volbreak ===
+  [XAUUSD M15] 24 grids | IS PF=0.93 n=428 -> OOS PF=0.74 win=25.0% n=188 (1.0s)
+    fold1: test PF=1.22 n=76 params={'chan': 'donchian', 'k': 20, 'exp': 1.0, 'sl_atr': 3.0, 'rr': 2.5}
+    fold2: test PF=1.08 n=90 params={'chan': 'donchian', 'k': 20, 'exp': 1.0, 'sl_atr': 3.0, 'rr': 2.5}
+    fold3: test PF=1.01 n=87 params={'chan': 'donchian', 'k': 20, 'exp': 1.0, 'sl_atr': 3.0, 'rr': 2.5}
+  REJECT: OOS PF<1.3, win<40.0%, OOS expectancy<=0, WF PF<1.3
+  [XAUUSD H1] 24 grids | IS PF=1.12 n=189 -> OOS PF=0.90 win=39.7% n=78 (0.4s)
+    fold1: test PF=0.75 n=65 params={'chan': 'donchian', 'k': 20, 'exp': 1.0, 'sl_atr': 3.0, 'rr': 1.5}
+    fold2: test PF=0.95 n=73 params={'chan': 'keltner', 'k': 50, 'mult': 2.5, 'exp': 1.0, 'sl_atr': 2.0, 'rr': 2.0}
+    fold3: test PF=1.00 n=42 params={'chan': 'donchian', 'k': 55, 'exp': 1.0, 'sl_atr': 3.0, 'rr': 1.5}
+  REJECT: OOS PF<1.3, win<40.0%, OOS expectancy<=0, WF PF<1.3, too many folds PF<1
+  [EURUSD M15] 24 grids | IS PF=0.73 n=244 -> OOS PF=0.43 win=21.7% n=115 (1.1s)
+    fold1: test PF=0.48 n=55 params={'chan': 'donchian', 'k': 20, 'exp': 1.3, 'sl_atr': 3.0, 'rr': 2.5}
+    fold2: test PF=0.71 n=59 params={'chan': 'donchian', 'k': 20, 'exp': 1.3, 'sl_atr': 3.0, 'rr': 2.5}
+    fold3: test PF=0.44 n=61 params={'chan': 'donchian', 'k': 20, 'exp': 1.3, 'sl_atr': 3.0, 'rr': 2.5}
+  REJECT: OOS PF<1.3, win<40.0%, OOS expectancy<=0, WF PF<1.3, too many folds PF<1, fold PF<0.7, OOS degradation >30%
+  [GBPUSD H1] 24 grids | IS PF=0.96 n=39 -> OOS PF=1.26 win=38.9% n=18 (0.5s)
+    fold1: test PF=0.69 n=10 params={'chan': 'donchian', 'k': 55, 'exp': 1.3, 'sl_atr': 1.5, 'rr': 1.5}
+    fold2: test PF=0.29 n=13 params={'chan': 'donchian', 'k': 55, 'exp': 1.3, 'sl_atr': 1.5, 'rr': 1.5}
+    fold3: test PF=2.08 n=8 params={'chan': 'donchian', 'k': 55, 'exp': 1.3, 'sl_atr': 3.0, 'rr': 2.5}
+  REJECT: OOS trades<30, OOS PF<1.3, win<40.0%, WF PF<1.3, WF trades<60, too many folds PF<1, fold PF<0.7
+=== FAMILY session ===
+  [XAUUSD M15] 8 grids | IS PF=0.46 n=467 -> OOS PF=0.47 win=27.3% n=187 (5.9s)
+    fold1: test PF=0.58 n=89 params={'min_atr': 0.0, 'buf': 0.8, 'rr': 2.5}
+    fold2: test PF=0.87 n=110 params={'min_atr': 0.0, 'buf': 0.8, 'rr': 2.5}
+    fold3: test PF=0.46 n=91 params={'min_atr': 0.0, 'buf': 0.8, 'rr': 2.5}
+  REJECT: OOS PF<1.3, win<40.0%, OOS expectancy<=0, WF PF<1.3, too many folds PF<1, fold PF<0.7
+  [EURUSD M15] 8 grids | IS PF=0.32 n=514 -> OOS PF=0.17 win=23.5% n=196 (7.0s)
+    fold1: test PF=0.28 n=102 params={'min_atr': 0.0, 'buf': 0.8, 'rr': 2.5}
+    fold2: test PF=0.24 n=129 params={'min_atr': 0.0, 'buf': 0.8, 'rr': 2.5}
+    fold3: test PF=0.21 n=84 params={'min_atr': 0.0, 'buf': 0.8, 'rr': 2.5}
+  REJECT: OOS PF<1.3, win<40.0%, OOS expectancy<=0, WF PF<1.3, too many folds PF<1, fold PF<0.7, OOS degradation >30%
+  [GBPUSD M15] 8 grids | IS PF=0.35 n=519 -> OOS PF=0.27 win=29.9% n=214 (7.8s)
+    fold1: test PF=0.29 n=112 params={'min_atr': 0.0, 'buf': 0.8, 'rr': 2.5}
+    fold2: test PF=0.27 n=125 params={'min_atr': 0.0, 'buf': 0.8, 'rr': 2.5}
+    fold3: test PF=0.32 n=96 params={'min_atr': 1.0, 'buf': 0.8, 'rr': 2.5}
+  REJECT: OOS PF<1.3, win<40.0%, OOS expectancy<=0, WF PF<1.3, too many folds PF<1, fold PF<0.7
+=== FAMILY mtf ===
+  [XAUUSD M15] 16 grids | IS PF=0.79 n=284 -> OOS PF=0.82 win=25.0% n=120 (4.0s)
+    fold1: test PF=0.91 n=68 params={'htf': '1h', 'htf_ema': 50, 'fast': 9, 'slow': 27, 'sl_atr': 2.5, 'rr': 2.5}
+    fold2: test PF=0.70 n=62 params={'htf': '1h', 'htf_ema': 50, 'fast': 9, 'slow': 27, 'sl_atr': 2.5, 'rr': 2.5}
+    fold3: test PF=1.02 n=71 params={'htf': '4h', 'htf_ema': 25, 'fast': 9, 'slow': 27, 'sl_atr': 2.5, 'rr': 2.5}
+  REJECT: OOS PF<1.3, win<40.0%, OOS expectancy<=0, WF PF<1.3, too many folds PF<1
+  [EURUSD M15] 16 grids | IS PF=0.54 n=494 -> OOS PF=0.32 win=21.5% n=200 (5.2s)
+    fold1: test PF=0.44 n=103 params={'htf': '1h', 'htf_ema': 50, 'fast': 5, 'slow': 21, 'sl_atr': 2.5, 'rr': 2.5}
+    fold2: test PF=0.33 n=113 params={'htf': '1h', 'htf_ema': 50, 'fast': 5, 'slow': 21, 'sl_atr': 2.5, 'rr': 2.5}
+    fold3: test PF=0.35 n=101 params={'htf': '1h', 'htf_ema': 50, 'fast': 5, 'slow': 21, 'sl_atr': 2.5, 'rr': 2.5}
+  REJECT: OOS PF<1.3, win<40.0%, OOS expectancy<=0, WF PF<1.3, too many folds PF<1, fold PF<0.7, OOS degradation >30%
+  [GBPUSD M15] 16 grids | IS PF=0.49 n=503 -> OOS PF=0.34 win=19.6% n=209 (4.8s)
+    fold1: test PF=0.31 n=109 params={'htf': '4h', 'htf_ema': 25, 'fast': 5, 'slow': 21, 'sl_atr': 2.5, 'rr': 2.5}
+    fold2: test PF=0.35 n=116 params={'htf': '4h', 'htf_ema': 25, 'fast': 5, 'slow': 21, 'sl_atr': 2.5, 'rr': 2.5}
+    fold3: test PF=0.34 n=102 params={'htf': '4h', 'htf_ema': 25, 'fast': 5, 'slow': 21, 'sl_atr': 2.5, 'rr': 2.5}
+  REJECT: OOS PF<1.3, win<40.0%, OOS expectancy<=0, WF PF<1.3, too many folds PF<1, fold PF<0.7, OOS degradation >30%
+=== FAMILY meanrev ===
+  [XAUUSD H1] 16 grids | IS PF=0.96 n=51 -> OOS PF=0.75 win=35.7% n=28 (2.1s)
+    fold1: test PF=2.21 n=6 params={'rsi_len': 14, 'th': 20, 'k': 2.0, 'sl_atr': 2.5, 'max_hold': 60, 'rr': 0}
+    fold2: test PF=0.61 n=10 params={'rsi_len': 14, 'th': 20, 'k': 2.0, 'sl_atr': 2.5, 'max_hold': 60, 'rr': 0}
+    fold3: test PF=0.70 n=20 params={'rsi_len': 14, 'th': 20, 'k': 2.0, 'sl_atr': 2.5, 'max_hold': 60, 'rr': 0}
+  REJECT: OOS trades<30, OOS PF<1.3, win<40.0%, OOS expectancy<=0, WF PF<1.3, WF trades<60, too many folds PF<1, fold PF<0.7
+  [EURUSD H1] 16 grids | IS PF=0.77 n=270 -> OOS PF=0.61 win=46.1% n=115 (2.0s)
+    fold1: test PF=0.89 n=63 params={'rsi_len': 14, 'th': 30, 'k': 2.0, 'sl_atr': 2.5, 'max_hold': 60, 'rr': 0}
+    fold2: test PF=0.63 n=52 params={'rsi_len': 14, 'th': 30, 'k': 2.0, 'sl_atr': 2.5, 'max_hold': 60, 'rr': 0}
+    fold3: test PF=0.56 n=61 params={'rsi_len': 14, 'th': 30, 'k': 2.0, 'sl_atr': 2.5, 'max_hold': 60, 'rr': 0}
+  REJECT: OOS PF<1.3, OOS expectancy<=0, WF PF<1.3, too many folds PF<1, fold PF<0.7
+  [GBPUSD H1] 16 grids | IS PF=0.99 n=53 -> OOS PF=0.40 win=25.0% n=20 (2.0s)
+    fold1: test PF=0.44 n=9 params={'rsi_len': 14, 'th': 20, 'k': 2.0, 'sl_atr': 2.5, 'max_hold': 24, 'rr': 0}
+    fold2: test PF=0.44 n=9 params={'rsi_len': 14, 'th': 20, 'k': 2.0, 'sl_atr': 2.5, 'max_hold': 60, 'rr': 0}
+    fold3: test PF=0.24 n=9 params={'rsi_len': 14, 'th': 20, 'k': 2.0, 'sl_atr': 2.5, 'max_hold': 60, 'rr': 0}
+  REJECT: OOS trades<30, OOS PF<1.3, win<40.0%, OOS expectancy<=0, WF PF<1.3, WF trades<60, too many folds PF<1, fold PF<0.7, OOS degradation >30%
+DONE in 3.0 min | tested 13 family/symbol combos | WINNERS: 0
+No candidate passed ALL gates. This is the expected honest outcome most of the time - the gates exist to filter luck. Next levers: tick data, new families, or accept that the edge must come from execution/discretion, not these signals.

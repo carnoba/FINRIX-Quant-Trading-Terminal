@@ -1,0 +1,16 @@
+Data: MT5 data: E:\programming\programming fundamentals c++\lab 4\mt5-agent\data\XAUUSD_M15.csv (46460 bars, 2024-10-21 01:00:00 -> 2026-10-19 13:00:00)
+Params: {'chan': 'donchian', 'k': 20, 'exp': 1.0, 'sl_atr': 3.0, 'rr': 2.5}
+[info] measured avg XAUUSD spread: 0.384 price units (0.000092 relative vs config 0.00020)
+
+variant                             IS PF  OOS PF  OOSwin  OOSn  verdict
+A baseline (miner settings)          0.93    0.74   25.0%   188  fail
+B maker limit @ close                0.99    0.75   24.9%   189  fail
+C raw tick spread                    0.96    0.75   25.0%   188  fail
+D maker + raw spread + 0 comm        1.16    0.82   24.9%   189  fail
+E maker @ close-0.5ATR               1.05    0.77   21.3%   178  fail
+
+--- exact tick-stream replay (real bid/ask) ---
+tick window 2026-10-09..2026-10-19 | signals=22 trades=5 win=20.0% PF=0.89 expect=$-9.11
+
+VERDICT RULE: any variant with OOS PF>1.2 & n>=30 graduates.
+RESULT: NO variant passed - volbreak stays dead

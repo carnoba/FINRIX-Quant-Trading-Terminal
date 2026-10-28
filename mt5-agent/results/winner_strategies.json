@@ -1,0 +1,1255 @@
+{
+  "updated_utc": "2026-10-19T16:03:26.298753+00:00",
+  "gates": {
+    "oos_pf_min": 1.3,
+    "win_min": 40.0,
+    "wf_pf_min": 1.3,
+    "min_oos_trades": 30,
+    "min_wf_trades": 60,
+    "degrade_max": 0.30000000000000004
+  },
+  "winners": [],
+  "all_results": [
+    {
+      "family": "volbreak",
+      "symbol": "XAUUSD",
+      "tf": "M15",
+      "bars": 46460,
+      "params": {
+        "chan": "donchian",
+        "k": 20,
+        "exp": 1.0,
+        "sl_atr": 3.0,
+        "rr": 2.5
+      },
+      "is": {
+        "trades": 428,
+        "win": 31.77570093457944,
+        "pf": 0.9320094636562063,
+        "expect": -3.976760971282669,
+        "maxdd": 41.39387406268467,
+        "avgr": 0.06595339484398076,
+        "pnl": -1702.0536957089823
+      },
+      "oos": {
+        "trades": 188,
+        "win": 25.0,
+        "pf": 0.7372462784763514,
+        "expect": -19.558292945999344,
+        "maxdd": 44.990547300870965,
+        "avgr": -0.16207992524567721,
+        "pnl": -3676.9590738478764
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "chan": "donchian",
+              "k": 20,
+              "exp": 1.0,
+              "sl_atr": 3.0,
+              "rr": 2.5
+            },
+            "test_pf": 1.2156584649049422,
+            "test_trades": 76,
+            "test_win": 38.1578947368421
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "chan": "donchian",
+              "k": 20,
+              "exp": 1.0,
+              "sl_atr": 3.0,
+              "rr": 2.5
+            },
+            "test_pf": 1.084466034833873,
+            "test_trades": 90,
+            "test_win": 33.333333333333336
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "chan": "donchian",
+              "k": 20,
+              "exp": 1.0,
+              "sl_atr": 3.0,
+              "rr": 2.5
+            },
+            "test_pf": 1.007478726350357,
+            "test_trades": 87,
+            "test_win": 32.18390804597701
+          }
+        ],
+        "aggregate": {
+          "trades": 253,
+          "win": 34.387351778656125,
+          "pf": 1.0939889590843888,
+          "expect": 6.798721837564237,
+          "maxdd": 14.96850052974406,
+          "avgr": 0.15477874629187438,
+          "pnl": 1720.076624903752
+        },
+        "distinct_param_sets": 1,
+        "param_unstable": false
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\XAUUSD_M15.csv (46460 bars, 2024-10-21 01:00:00 -> 2026-10-19 13:00:00)",
+      "reject_reasons": [
+        "OOS PF<1.3",
+        "win<40.0%",
+        "OOS expectancy<=0",
+        "WF PF<1.3"
+      ],
+      "passed": false
+    },
+    {
+      "family": "volbreak",
+      "symbol": "XAUUSD",
+      "tf": "H1",
+      "bars": 17556,
+      "params": {
+        "chan": "donchian",
+        "k": 55,
+        "exp": 1.0,
+        "sl_atr": 3.0,
+        "rr": 1.5
+      },
+      "is": {
+        "trades": 189,
+        "win": 46.560846560846564,
+        "pf": 1.1219734198446392,
+        "expect": 7.045060914315801,
+        "maxdd": 14.019189378811516,
+        "avgr": 0.13168832214199655,
+        "pnl": 1331.5165128056865
+      },
+      "oos": {
+        "trades": 78,
+        "win": 39.743589743589745,
+        "pf": 0.9006907480281071,
+        "expect": -6.267758669351434,
+        "maxdd": 9.080964943174271,
+        "avgr": -0.023566373602679328,
+        "pnl": -488.8851762094119
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "chan": "donchian",
+              "k": 20,
+              "exp": 1.0,
+              "sl_atr": 3.0,
+              "rr": 1.5
+            },
+            "test_pf": 0.7458735347995319,
+            "test_trades": 65,
+            "test_win": 36.92307692307692
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "chan": "keltner",
+              "k": 50,
+              "mult": 2.5,
+              "exp": 1.0,
+              "sl_atr": 2.0,
+              "rr": 2.0
+            },
+            "test_pf": 0.9525087676247573,
+            "test_trades": 73,
+            "test_win": 36.986301369863014
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "chan": "donchian",
+              "k": 55,
+              "exp": 1.0,
+              "sl_atr": 3.0,
+              "rr": 1.5
+            },
+            "test_pf": 1.0003679500960974,
+            "test_trades": 42,
+            "test_win": 42.857142857142854
+          }
+        ],
+        "aggregate": {
+          "trades": 180,
+          "win": 38.333333333333336,
+          "pf": 0.8891591098671464,
+          "expect": -7.000735787013756,
+          "maxdd": 24.426958091887943,
+          "avgr": -0.006573346895364285,
+          "pnl": -1260.1324416624761
+        },
+        "distinct_param_sets": 3,
+        "param_unstable": true
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\XAUUSD_H1.csv (17556 bars, 2023-10-19 19:00:00 -> 2026-10-19 13:00:00)",
+      "reject_reasons": [
+        "OOS PF<1.3",
+        "win<40.0%",
+        "OOS expectancy<=0",
+        "WF PF<1.3",
+        "too many folds PF<1"
+      ],
+      "passed": false
+    },
+    {
+      "family": "volbreak",
+      "symbol": "EURUSD",
+      "tf": "M15",
+      "bars": 49446,
+      "params": {
+        "chan": "donchian",
+        "k": 20,
+        "exp": 1.3,
+        "sl_atr": 3.0,
+        "rr": 2.5
+      },
+      "is": {
+        "trades": 244,
+        "win": 29.918032786885245,
+        "pf": 0.726317852828729,
+        "expect": -18.56330892224064,
+        "maxdd": 47.93713341622824,
+        "avgr": -0.042092358294085905,
+        "pnl": -4529.447377026716
+      },
+      "oos": {
+        "trades": 115,
+        "win": 21.73913043478261,
+        "pf": 0.4309601400008688,
+        "expect": -41.7973634763718,
+        "maxdd": 47.98176538338189,
+        "avgr": -0.3137762140205943,
+        "pnl": -4806.696799782757
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "chan": "donchian",
+              "k": 20,
+              "exp": 1.3,
+              "sl_atr": 3.0,
+              "rr": 2.5
+            },
+            "test_pf": 0.4781811976929953,
+            "test_trades": 55,
+            "test_win": 23.636363636363637
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "chan": "donchian",
+              "k": 20,
+              "exp": 1.3,
+              "sl_atr": 3.0,
+              "rr": 2.5
+            },
+            "test_pf": 0.7117481530277867,
+            "test_trades": 59,
+            "test_win": 30.508474576271187
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "chan": "donchian",
+              "k": 20,
+              "exp": 1.3,
+              "sl_atr": 3.0,
+              "rr": 2.5
+            },
+            "test_pf": 0.4419383011934048,
+            "test_trades": 61,
+            "test_win": 21.311475409836067
+          }
+        ],
+        "aggregate": {
+          "trades": 175,
+          "win": 25.142857142857142,
+          "pf": 0.5425882440375904,
+          "expect": -37.68791415711638,
+          "maxdd": 65.5192446254948,
+          "avgr": -0.2005558393855005,
+          "pnl": -6595.384977495367
+        },
+        "distinct_param_sets": 1,
+        "param_unstable": false
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\EURUSD_M15.csv (49446 bars, 2024-10-21 00:00:00 -> 2026-10-19 12:45:00)",
+      "reject_reasons": [
+        "OOS PF<1.3",
+        "win<40.0%",
+        "OOS expectancy<=0",
+        "WF PF<1.3",
+        "too many folds PF<1",
+        "fold PF<0.7",
+        "OOS degradation >30%"
+      ],
+      "passed": false
+    },
+    {
+      "family": "volbreak",
+      "symbol": "GBPUSD",
+      "tf": "H1",
+      "bars": 18578,
+      "params": {
+        "chan": "donchian",
+        "k": 55,
+        "exp": 1.3,
+        "sl_atr": 3.0,
+        "rr": 2.5
+      },
+      "is": {
+        "trades": 39,
+        "win": 33.333333333333336,
+        "pf": 0.9563646226393583,
+        "expect": -3.1468837317688267,
+        "maxdd": 8.603940475032177,
+        "avgr": 0.08024075678943457,
+        "pnl": -122.72846553898424
+      },
+      "oos": {
+        "trades": 18,
+        "win": 38.888888888888886,
+        "pf": 1.257504393990019,
+        "expect": 18.24741076151876,
+        "maxdd": 2.4354711785422865,
+        "avgr": 0.30542176710452495,
+        "pnl": 328.4533937073377
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "chan": "donchian",
+              "k": 55,
+              "exp": 1.3,
+              "sl_atr": 1.5,
+              "rr": 1.5
+            },
+            "test_pf": 0.6884329465221246,
+            "test_trades": 10,
+            "test_win": 40.0
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "chan": "donchian",
+              "k": 55,
+              "exp": 1.3,
+              "sl_atr": 1.5,
+              "rr": 1.5
+            },
+            "test_pf": 0.2864989852728094,
+            "test_trades": 13,
+            "test_win": 23.076923076923077
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "chan": "donchian",
+              "k": 55,
+              "exp": 1.3,
+              "sl_atr": 3.0,
+              "rr": 2.5
+            },
+            "test_pf": 2.081675625972139,
+            "test_trades": 8,
+            "test_win": 50.0
+          }
+        ],
+        "aggregate": {
+          "trades": 31,
+          "win": 35.483870967741936,
+          "pf": 0.7555363649643505,
+          "expect": -17.859860849671414,
+          "maxdd": 9.266643283791337,
+          "avgr": -0.03478821234163926,
+          "pnl": -553.6556863398138
+        },
+        "distinct_param_sets": 2,
+        "param_unstable": false
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\GBPUSD_H1.csv (18578 bars, 2023-10-19 19:00:00 -> 2026-10-19 13:00:00)",
+      "reject_reasons": [
+        "OOS trades<30",
+        "OOS PF<1.3",
+        "win<40.0%",
+        "WF PF<1.3",
+        "WF trades<60",
+        "too many folds PF<1",
+        "fold PF<0.7"
+      ],
+      "passed": false
+    },
+    {
+      "family": "session",
+      "symbol": "XAUUSD",
+      "tf": "M15",
+      "bars": 46460,
+      "params": {
+        "min_atr": 0.0,
+        "buf": 0.8,
+        "rr": 2.5
+      },
+      "is": {
+        "trades": 467,
+        "win": 30.83511777301927,
+        "pf": 0.4596729809941969,
+        "expect": -17.35110497626418,
+        "maxdd": 81.87315438027215,
+        "avgr": -0.09847180443672708,
+        "pnl": -8102.966023915371
+      },
+      "oos": {
+        "trades": 187,
+        "win": 27.272727272727273,
+        "pf": 0.4693148388048686,
+        "expect": -29.149224026009957,
+        "maxdd": 54.895436317227364,
+        "avgr": -0.22497900240020682,
+        "pnl": -5450.904892863862
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "min_atr": 0.0,
+              "buf": 0.8,
+              "rr": 2.5
+            },
+            "test_pf": 0.5801139392882587,
+            "test_trades": 89,
+            "test_win": 32.58426966292135
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "min_atr": 0.0,
+              "buf": 0.8,
+              "rr": 2.5
+            },
+            "test_pf": 0.8696458513823311,
+            "test_trades": 110,
+            "test_win": 40.0
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "min_atr": 0.0,
+              "buf": 0.8,
+              "rr": 2.5
+            },
+            "test_pf": 0.4642979770653497,
+            "test_trades": 91,
+            "test_win": 26.373626373626372
+          }
+        ],
+        "aggregate": {
+          "trades": 290,
+          "win": 33.44827586206897,
+          "pf": 0.6516180813069155,
+          "expect": -22.07981824261721,
+          "maxdd": 63.95200248268994,
+          "avgr": -0.05178732561185903,
+          "pnl": -6403.147290358991
+        },
+        "distinct_param_sets": 1,
+        "param_unstable": false
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\XAUUSD_M15.csv (46460 bars, 2024-10-21 01:00:00 -> 2026-10-19 13:00:00)",
+      "reject_reasons": [
+        "OOS PF<1.3",
+        "win<40.0%",
+        "OOS expectancy<=0",
+        "WF PF<1.3",
+        "too many folds PF<1",
+        "fold PF<0.7"
+      ],
+      "passed": false
+    },
+    {
+      "family": "session",
+      "symbol": "EURUSD",
+      "tf": "M15",
+      "bars": 49446,
+      "params": {
+        "min_atr": 0.0,
+        "buf": 0.8,
+        "rr": 2.5
+      },
+      "is": {
+        "trades": 514,
+        "win": 31.1284046692607,
+        "pf": 0.3210923286961719,
+        "expect": -18.73326920404822,
+        "maxdd": 96.28835950680701,
+        "avgr": -0.1394468380144949,
+        "pnl": -9628.900370880785
+      },
+      "oos": {
+        "trades": 196,
+        "win": 23.46938775510204,
+        "pf": 0.17447819167237721,
+        "expect": -42.45744979192444,
+        "maxdd": 83.03381887334763,
+        "avgr": -0.29097083067073554,
+        "pnl": -8321.66015921719
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "min_atr": 0.0,
+              "buf": 0.8,
+              "rr": 2.5
+            },
+            "test_pf": 0.27904885372636545,
+            "test_trades": 102,
+            "test_win": 30.392156862745097
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "min_atr": 0.0,
+              "buf": 0.8,
+              "rr": 2.5
+            },
+            "test_pf": 0.23903279622987567,
+            "test_trades": 129,
+            "test_win": 30.232558139534884
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "min_atr": 0.0,
+              "buf": 0.8,
+              "rr": 2.5
+            },
+            "test_pf": 0.2118823573013092,
+            "test_trades": 84,
+            "test_win": 26.19047619047619
+          }
+        ],
+        "aggregate": {
+          "trades": 315,
+          "win": 29.206349206349206,
+          "pf": 0.24414762731016162,
+          "expect": -51.226324788419674,
+          "maxdd": 161.50157175077427,
+          "avgr": -0.18039670702735264,
+          "pnl": -16136.292308352198
+        },
+        "distinct_param_sets": 1,
+        "param_unstable": false
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\EURUSD_M15.csv (49446 bars, 2024-10-21 00:00:00 -> 2026-10-19 12:45:00)",
+      "reject_reasons": [
+        "OOS PF<1.3",
+        "win<40.0%",
+        "OOS expectancy<=0",
+        "WF PF<1.3",
+        "too many folds PF<1",
+        "fold PF<0.7",
+        "OOS degradation >30%"
+      ],
+      "passed": false
+    },
+    {
+      "family": "session",
+      "symbol": "GBPUSD",
+      "tf": "M15",
+      "bars": 49444,
+      "params": {
+        "min_atr": 1.0,
+        "buf": 0.8,
+        "rr": 2.5
+      },
+      "is": {
+        "trades": 519,
+        "win": 28.516377649325626,
+        "pf": 0.3510230189939297,
+        "expect": -18.64951921870735,
+        "maxdd": 96.73344662250716,
+        "avgr": -0.17481362789078064,
+        "pnl": -9679.100474509114
+      },
+      "oos": {
+        "trades": 214,
+        "win": 29.906542056074766,
+        "pf": 0.26873171991395417,
+        "expect": -37.879173405671104,
+        "maxdd": 80.77935061483107,
+        "avgr": -0.18196740386152654,
+        "pnl": -8106.143108813616
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "min_atr": 0.0,
+              "buf": 0.8,
+              "rr": 2.5
+            },
+            "test_pf": 0.29130515434192217,
+            "test_trades": 112,
+            "test_win": 29.464285714285715
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "min_atr": 0.0,
+              "buf": 0.8,
+              "rr": 2.5
+            },
+            "test_pf": 0.27420165094878884,
+            "test_trades": 125,
+            "test_win": 25.6
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "min_atr": 1.0,
+              "buf": 0.8,
+              "rr": 2.5
+            },
+            "test_pf": 0.32251436959174823,
+            "test_trades": 96,
+            "test_win": 32.291666666666664
+          }
+        ],
+        "aggregate": {
+          "trades": 333,
+          "win": 28.82882882882883,
+          "pf": 0.2946467303148728,
+          "expect": -47.37514389533349,
+          "maxdd": 159.87913034428726,
+          "avgr": -0.15123291957241194,
+          "pnl": -15775.92291714605
+        },
+        "distinct_param_sets": 2,
+        "param_unstable": false
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\GBPUSD_M15.csv (49444 bars, 2024-10-21 00:00:00 -> 2026-10-19 13:00:00)",
+      "reject_reasons": [
+        "OOS PF<1.3",
+        "win<40.0%",
+        "OOS expectancy<=0",
+        "WF PF<1.3",
+        "too many folds PF<1",
+        "fold PF<0.7"
+      ],
+      "passed": false
+    },
+    {
+      "family": "mtf",
+      "symbol": "XAUUSD",
+      "tf": "M15",
+      "bars": 46460,
+      "params": {
+        "htf": "4h",
+        "htf_ema": 25,
+        "fast": 9,
+        "slow": 27,
+        "sl_atr": 2.5,
+        "rr": 2.5
+      },
+      "is": {
+        "trades": 284,
+        "win": 28.87323943661972,
+        "pf": 0.7893421110774662,
+        "expect": -10.88265464886721,
+        "maxdd": 40.25658125927548,
+        "avgr": 0.023367623569798237,
+        "pnl": -3090.6739202782874
+      },
+      "oos": {
+        "trades": 120,
+        "win": 25.0,
+        "pf": 0.8207194552904413,
+        "expect": -11.20514300776309,
+        "maxdd": 21.496736495926296,
+        "avgr": -0.010669567192020717,
+        "pnl": -1344.6171609315707
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "htf": "1h",
+              "htf_ema": 50,
+              "fast": 9,
+              "slow": 27,
+              "sl_atr": 2.5,
+              "rr": 2.5
+            },
+            "test_pf": 0.9136368799795278,
+            "test_trades": 68,
+            "test_win": 32.35294117647059
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "htf": "1h",
+              "htf_ema": 50,
+              "fast": 9,
+              "slow": 27,
+              "sl_atr": 2.5,
+              "rr": 2.5
+            },
+            "test_pf": 0.7030965498345705,
+            "test_trades": 62,
+            "test_win": 24.193548387096776
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "htf": "4h",
+              "htf_ema": 25,
+              "fast": 9,
+              "slow": 27,
+              "sl_atr": 2.5,
+              "rr": 2.5
+            },
+            "test_pf": 1.0167314926603956,
+            "test_trades": 71,
+            "test_win": 28.169014084507044
+          }
+        ],
+        "aggregate": {
+          "trades": 201,
+          "win": 28.35820895522388,
+          "pf": 0.886573601415599,
+          "expect": -6.68595780674493,
+          "maxdd": 17.302842890470984,
+          "avgr": 0.055066259242536,
+          "pnl": -1343.8775191557309
+        },
+        "distinct_param_sets": 2,
+        "param_unstable": false
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\XAUUSD_M15.csv (46460 bars, 2024-10-21 01:00:00 -> 2026-10-19 13:00:00)",
+      "reject_reasons": [
+        "OOS PF<1.3",
+        "win<40.0%",
+        "OOS expectancy<=0",
+        "WF PF<1.3",
+        "too many folds PF<1"
+      ],
+      "passed": false
+    },
+    {
+      "family": "mtf",
+      "symbol": "EURUSD",
+      "tf": "M15",
+      "bars": 49446,
+      "params": {
+        "htf": "1h",
+        "htf_ema": 50,
+        "fast": 5,
+        "slow": 21,
+        "sl_atr": 2.5,
+        "rr": 2.5
+      },
+      "is": {
+        "trades": 494,
+        "win": 24.493927125506072,
+        "pf": 0.5447434253092738,
+        "expect": -17.008641136477507,
+        "maxdd": 84.65933036837241,
+        "avgr": -0.05101208037780111,
+        "pnl": -8402.268721419889
+      },
+      "oos": {
+        "trades": 200,
+        "win": 21.5,
+        "pf": 0.3188104926019627,
+        "expect": -34.88007127836544,
+        "maxdd": 70.38060908095495,
+        "avgr": -0.19304785797490592,
+        "pnl": -6976.014255673088
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "htf": "1h",
+              "htf_ema": 50,
+              "fast": 5,
+              "slow": 21,
+              "sl_atr": 2.5,
+              "rr": 2.5
+            },
+            "test_pf": 0.4390292872820925,
+            "test_trades": 103,
+            "test_win": 24.271844660194176
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "htf": "1h",
+              "htf_ema": 50,
+              "fast": 5,
+              "slow": 21,
+              "sl_atr": 2.5,
+              "rr": 2.5
+            },
+            "test_pf": 0.3287223733967059,
+            "test_trades": 113,
+            "test_win": 19.469026548672566
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "htf": "1h",
+              "htf_ema": 50,
+              "fast": 5,
+              "slow": 21,
+              "sl_atr": 2.5,
+              "rr": 2.5
+            },
+            "test_pf": 0.3466991466546837,
+            "test_trades": 101,
+            "test_win": 22.77227722772277
+          }
+        ],
+        "aggregate": {
+          "trades": 317,
+          "win": 22.082018927444796,
+          "pf": 0.3694960357150113,
+          "expect": -39.083461541613325,
+          "maxdd": 124.99497817804061,
+          "avgr": -0.14388394104375515,
+          "pnl": -12389.457308691424
+        },
+        "distinct_param_sets": 1,
+        "param_unstable": false
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\EURUSD_M15.csv (49446 bars, 2024-10-21 00:00:00 -> 2026-10-19 12:45:00)",
+      "reject_reasons": [
+        "OOS PF<1.3",
+        "win<40.0%",
+        "OOS expectancy<=0",
+        "WF PF<1.3",
+        "too many folds PF<1",
+        "fold PF<0.7",
+        "OOS degradation >30%"
+      ],
+      "passed": false
+    },
+    {
+      "family": "mtf",
+      "symbol": "GBPUSD",
+      "tf": "M15",
+      "bars": 49444,
+      "params": {
+        "htf": "4h",
+        "htf_ema": 25,
+        "fast": 5,
+        "slow": 21,
+        "sl_atr": 2.5,
+        "rr": 2.5
+      },
+      "is": {
+        "trades": 503,
+        "win": 21.669980119284293,
+        "pf": 0.4855987817477832,
+        "expect": -17.697676443487754,
+        "maxdd": 89.53819259859583,
+        "avgr": -0.13343147363521304,
+        "pnl": -8901.93125107434
+      },
+      "oos": {
+        "trades": 209,
+        "win": 19.617224880382775,
+        "pf": 0.33627006360547296,
+        "expect": -33.72586876620144,
+        "maxdd": 70.70413411089675,
+        "avgr": -0.2086820172096716,
+        "pnl": -7048.7065721361005
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "htf": "4h",
+              "htf_ema": 25,
+              "fast": 5,
+              "slow": 21,
+              "sl_atr": 2.5,
+              "rr": 2.5
+            },
+            "test_pf": 0.3149674759541494,
+            "test_trades": 109,
+            "test_win": 16.513761467889907
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "htf": "4h",
+              "htf_ema": 25,
+              "fast": 5,
+              "slow": 21,
+              "sl_atr": 2.5,
+              "rr": 2.5
+            },
+            "test_pf": 0.3480274796457061,
+            "test_trades": 116,
+            "test_win": 18.96551724137931
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "htf": "4h",
+              "htf_ema": 25,
+              "fast": 5,
+              "slow": 21,
+              "sl_atr": 2.5,
+              "rr": 2.5
+            },
+            "test_pf": 0.3359979134344551,
+            "test_trades": 102,
+            "test_win": 20.58823529411765
+          }
+        ],
+        "aggregate": {
+          "trades": 327,
+          "win": 18.654434250764528,
+          "pf": 0.332739653839999,
+          "expect": -41.955219225968456,
+          "maxdd": 137.53210215867628,
+          "avgr": -0.22885542324047045,
+          "pnl": -13719.356686891686
+        },
+        "distinct_param_sets": 1,
+        "param_unstable": false
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\GBPUSD_M15.csv (49444 bars, 2024-10-21 00:00:00 -> 2026-10-19 13:00:00)",
+      "reject_reasons": [
+        "OOS PF<1.3",
+        "win<40.0%",
+        "OOS expectancy<=0",
+        "WF PF<1.3",
+        "too many folds PF<1",
+        "fold PF<0.7",
+        "OOS degradation >30%"
+      ],
+      "passed": false
+    },
+    {
+      "family": "meanrev",
+      "symbol": "XAUUSD",
+      "tf": "H1",
+      "bars": 17556,
+      "params": {
+        "rsi_len": 14,
+        "th": 20,
+        "k": 2.0,
+        "sl_atr": 2.5,
+        "max_hold": 60,
+        "rr": 0
+      },
+      "is": {
+        "trades": 51,
+        "win": 43.13725490196079,
+        "pf": 0.9595623546314176,
+        "expect": -2.32845622155413,
+        "maxdd": 5.55338101018915,
+        "avgr": 0.05142969287023141,
+        "pnl": -118.75126729926062
+      },
+      "oos": {
+        "trades": 28,
+        "win": 35.714285714285715,
+        "pf": 0.7527181242401316,
+        "expect": -16.27275342805844,
+        "maxdd": 8.614034564436075,
+        "avgr": -0.11798272634558096,
+        "pnl": -455.6370959856363
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "rsi_len": 14,
+              "th": 20,
+              "k": 2.0,
+              "sl_atr": 2.5,
+              "max_hold": 60,
+              "rr": 0
+            },
+            "test_pf": 2.208435429931912,
+            "test_trades": 6,
+            "test_win": 66.66666666666667
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "rsi_len": 14,
+              "th": 20,
+              "k": 2.0,
+              "sl_atr": 2.5,
+              "max_hold": 60,
+              "rr": 0
+            },
+            "test_pf": 0.6087142028842739,
+            "test_trades": 10,
+            "test_win": 30.0
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "rsi_len": 14,
+              "th": 20,
+              "k": 2.0,
+              "sl_atr": 2.5,
+              "max_hold": 60,
+              "rr": 0
+            },
+            "test_pf": 0.7040490029578017,
+            "test_trades": 20,
+            "test_win": 35.0
+          }
+        ],
+        "aggregate": {
+          "trades": 36,
+          "win": 38.888888888888886,
+          "pf": 0.8227429889474662,
+          "expect": -11.013472624992332,
+          "maxdd": 8.31214402680254,
+          "avgr": -0.05532973345452387,
+          "pnl": -396.48501449972395
+        },
+        "distinct_param_sets": 1,
+        "param_unstable": false
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\XAUUSD_H1.csv (17556 bars, 2023-10-19 19:00:00 -> 2026-10-19 13:00:00)",
+      "reject_reasons": [
+        "OOS trades<30",
+        "OOS PF<1.3",
+        "win<40.0%",
+        "OOS expectancy<=0",
+        "WF PF<1.3",
+        "WF trades<60",
+        "too many folds PF<1",
+        "fold PF<0.7"
+      ],
+      "passed": false
+    },
+    {
+      "family": "meanrev",
+      "symbol": "EURUSD",
+      "tf": "H1",
+      "bars": 18579,
+      "params": {
+        "rsi_len": 14,
+        "th": 30,
+        "k": 2.0,
+        "sl_atr": 2.5,
+        "max_hold": 60,
+        "rr": 0
+      },
+      "is": {
+        "trades": 270,
+        "win": 49.25925925925926,
+        "pf": 0.7701949449136647,
+        "expect": -11.468529032824058,
+        "maxdd": 32.18491237006355,
+        "avgr": 0.025634849284156377,
+        "pnl": -3096.5028388624955
+      },
+      "oos": {
+        "trades": 115,
+        "win": 46.08695652173913,
+        "pf": 0.6075223531513774,
+        "expect": -19.949578362845934,
+        "maxdd": 26.854739151014485,
+        "avgr": -0.030465504872384523,
+        "pnl": -2294.201511727282
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "rsi_len": 14,
+              "th": 30,
+              "k": 2.0,
+              "sl_atr": 2.5,
+              "max_hold": 60,
+              "rr": 0
+            },
+            "test_pf": 0.8940235381729412,
+            "test_trades": 63,
+            "test_win": 49.20634920634921
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "rsi_len": 14,
+              "th": 30,
+              "k": 2.0,
+              "sl_atr": 2.5,
+              "max_hold": 60,
+              "rr": 0
+            },
+            "test_pf": 0.6295755540929142,
+            "test_trades": 52,
+            "test_win": 44.23076923076923
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "rsi_len": 14,
+              "th": 30,
+              "k": 2.0,
+              "sl_atr": 2.5,
+              "max_hold": 60,
+              "rr": 0
+            },
+            "test_pf": 0.5568088401934697,
+            "test_trades": 61,
+            "test_win": 44.26229508196721
+          }
+        ],
+        "aggregate": {
+          "trades": 176,
+          "win": 46.02272727272727,
+          "pf": 0.6943983891857115,
+          "expect": -17.360765166091188,
+          "maxdd": 34.898721788682394,
+          "avgr": -0.03132194038806321,
+          "pnl": -3055.494669232049
+        },
+        "distinct_param_sets": 1,
+        "param_unstable": false
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\EURUSD_H1.csv (18579 bars, 2023-10-19 18:00:00 -> 2026-10-19 12:00:00)",
+      "reject_reasons": [
+        "OOS PF<1.3",
+        "OOS expectancy<=0",
+        "WF PF<1.3",
+        "too many folds PF<1",
+        "fold PF<0.7"
+      ],
+      "passed": false
+    },
+    {
+      "family": "meanrev",
+      "symbol": "GBPUSD",
+      "tf": "H1",
+      "bars": 18578,
+      "params": {
+        "rsi_len": 14,
+        "th": 20,
+        "k": 2.0,
+        "sl_atr": 2.5,
+        "max_hold": 60,
+        "rr": 0
+      },
+      "is": {
+        "trades": 53,
+        "win": 47.16981132075472,
+        "pf": 0.9936259224889565,
+        "expect": -0.3920478839741212,
+        "maxdd": 12.956298091771531,
+        "avgr": 0.14122538734898085,
+        "pnl": -20.778537850628425
+      },
+      "oos": {
+        "trades": 20,
+        "win": 25.0,
+        "pf": 0.40048235822104433,
+        "expect": -44.23921220362384,
+        "maxdd": 9.95097291950683,
+        "avgr": -0.3045638345204013,
+        "pnl": -884.7842440724769
+      },
+      "walk_forward": {
+        "folds": [
+          {
+            "train_end_frac": 0.4,
+            "params": {
+              "rsi_len": 14,
+              "th": 20,
+              "k": 2.0,
+              "sl_atr": 2.5,
+              "max_hold": 24,
+              "rr": 0
+            },
+            "test_pf": 0.44480472113631725,
+            "test_trades": 9,
+            "test_win": 33.333333333333336
+          },
+          {
+            "train_end_frac": 0.55,
+            "params": {
+              "rsi_len": 14,
+              "th": 20,
+              "k": 2.0,
+              "sl_atr": 2.5,
+              "max_hold": 60,
+              "rr": 0
+            },
+            "test_pf": 0.4429662761430022,
+            "test_trades": 9,
+            "test_win": 33.333333333333336
+          },
+          {
+            "train_end_frac": 0.7,
+            "params": {
+              "rsi_len": 14,
+              "th": 20,
+              "k": 2.0,
+              "sl_atr": 2.5,
+              "max_hold": 60,
+              "rr": 0
+            },
+            "test_pf": 0.24011256903480774,
+            "test_trades": 9,
+            "test_win": 22.22222222222222
+          }
+        ],
+        "aggregate": {
+          "trades": 27,
+          "win": 29.62962962962963,
+          "pf": 0.364729765272244,
+          "expect": -47.24627718930914,
+          "maxdd": 14.028048476996807,
+          "avgr": -0.34143045585863935,
+          "pnl": -1275.6494841113467
+        },
+        "distinct_param_sets": 2,
+        "param_unstable": false
+      },
+      "data_source": "MT5 data: E:\\programming\\programming fundamentals c++\\lab 4\\mt5-agent\\data\\GBPUSD_H1.csv (18578 bars, 2023-10-19 19:00:00 -> 2026-10-19 13:00:00)",
+      "reject_reasons": [
+        "OOS trades<30",
+        "OOS PF<1.3",
+        "win<40.0%",
+        "OOS expectancy<=0",
+        "WF PF<1.3",
+        "WF trades<60",
+        "too many folds PF<1",
+        "fold PF<0.7",
+        "OOS degradation >30%"
+      ],
+      "passed": false
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+# --- Environment & Secrets ---
+.env
+.env.example (tracked for reference, but no real secrets)
+
+# --- Virtual Environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Python Bytecode ---
+__pycache__/
+*.py[c]
+*.pyo
+*$py.class
+
+# --- Modal ---
+.modal/
+
+# --- Data & Results (generated at runtime) ---
+data/*.json
+results/**/*
+cache/**/*
+
+# --- Large Data Files (CSV - >100MB) - GitHub safe ---
+data/*.csv
+*.csv
+
+# --- IDE & Editor Specific ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
+
+# --- Backtest Engine Output ---
+mt5-agent/data/top_gold_strategies.json

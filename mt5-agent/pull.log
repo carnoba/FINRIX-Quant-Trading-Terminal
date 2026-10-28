@@ -1,0 +1,26 @@
+Attached: login=114303307 server=MetaQuotes-Demo (configured: MetaQuotes-Demo)
+Pulling bars from 2020-01-01 ...
+EURUSD:
+  EURUSD M15: FAILED (-2, 'Terminal: Invalid params')
+  rows=42269 span=2019-12-31 19:00:00 -> 2026-10-19 12:00:00 | missing H1 bars (incl. weekends/holidays): 17341
+  rows=10583 span=2019-12-31 20:00:00 -> 2026-10-19 12:00:00
+Traceback (most recent call last):
+  File "e:\programming\programming fundamentals c++\lab 4\mt5-agent\data_pull.py", line 121, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "e:\programming\programming fundamentals c++\lab 4\mt5-agent\data_pull.py", line 112, in main
+    quality_report(ticks, None)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "e:\programming\programming fundamentals c++\lab 4\mt5-agent\data_pull.py", line 73, in quality_report
+    if df[["open", "high", "low", "close"]].isna().any().any():
+       ~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\DELL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 4119, in __getitem__
+    indexer = self.columns._get_indexer_strict(key, "columns")[1]
+              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\DELL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\indexes\base.py", line 6212, in _get_indexer_strict
+    self._raise_if_missing(keyarr, indexer, axis_name)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\DELL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\indexes\base.py", line 6261, in _raise_if_missing
+    raise KeyError(f"None of [{key}] are in the [{axis_name}]")
+KeyError: "None of [Index(['open', 'high', 'low', 'close'], dtype='object')] are in the [columns]"
+EXITCODE=1 

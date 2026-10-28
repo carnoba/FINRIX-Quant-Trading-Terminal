@@ -1,0 +1,526 @@
+//@version=5
+indicator("XAUUSD Hybrid Suite — Model 3 + Model 1", shorttitle="XAU_Hybrid", overlay=true, max_labels_count=500, max_lines_count=500, max_bars_back=500)
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+grp_model3 = "Model 3 — Trend Continuation (FVG + POC Retest)"
+show_m3    = input.bool(true, "Show Model 3 signals", group=grp_model3)
+m3_rr      = input.int(3, "Model 3 RR Target", minval=1, maxval=5, step=1, group=grp_model3)
+m3_sl_atr  = input.float(1.0, "Model 3 SL buffer (x ATR)", minval=0.5, maxval=2.0, step=0.5, group=grp_model3)
+m3_be      = input.bool(true, "Model 3 Move to BE at +1R", group=grp_model3)
+
+grp_model1 = "Model 1 — News Fade (Spike Fade)"
+show_m1    = input.bool(true, "Show Model 1 signals", group=grp_model1)
+m1_rr      = input.int(3, "Model 1 RR Target", minval=1, maxval=5, step=1, group=grp_model1)
+m1_sl_atr  = input.float(1.0, "Model 1 SL buffer (x ATR)", minval=0.5, maxval=2.0, step=0.5, group=grp_model1)
+
+grp_drawing = "Visuals"
+show_fvg   = input.bool(true, "Draw FVG zones", group=grp_drawing)
+show_sweep = input.bool(true, "Draw liquidity sweeps", group=grp_drawing)
+show_bos   = input.bool(true, "Draw BOS/CHoCH", group=grp_drawing)
+show_levels= input.bool(true, "Draw entry/SL/TP levels", group=grp_drawing)
+fvg_color_bull = input.color(color.new(color.green, 70), "Bullish FVG color", group=grp_drawing)
+fvg_color_bear = input.color(color.new(color.red, 70), "Bearish FVG color", group=grp_drawing)
+grp_risk   = "Risk / Lot Sizing"
+acct_balance = input.float(1000.0, "Account Balance (USD)", minval=1.0, group=grp_risk)
+risk_pct   = input.float(1.0, "Risk per trade (%)", minval=0.1, maxval=5.0, step=0.25, group=grp_risk)
+oz_per_lot = input.float(100.0, "Oz per lot (XAUUSD=100)", minval=1.0, group=grp_risk)
+lot_step   = input.float(0.01, "Lot step (0.01 cent lot)", minval=0.01, group=grp_risk)
+lot_min    = input.float(0.01, "Min lot", minval=0.01, group=grp_risk)
+lot_max    = input.float(0.05, "Max lot", minval=0.01, group=grp_risk)
+
+grp_limits = "Object Limits"
+max_fvg_lines = input.int(20, "Max FVG lines/boxes on chart", minval=5, maxval=100, group=grp_limits)
+
+grp_webhook = "Webhook Alerts"
+webhook_url = input.string("", "Telegram / Modal Sentinel Webhook URL", group=grp_webhook)
+send_alerts = input.bool(false, "Enable alertcondition webhook firing", group=grp_webhook)
+
+swing_len      = input.int(5,   "Swing confirmation bars (left/right)", minval=2, maxval=10, group=grp_drawing)
+spike_mult     = input.float(2.0, "Spike bar multiplier (x ATR)", minval=1.0, maxval=4.0, step=0.5, group=grp_model1)
+session_offset = input.int(2,   "Server UTC offset (hours)", minval=-12, maxval=12, group=grp_drawing)
+
+// =============================================================================
+// TIMEFRAME HELPERS
+// =============================================================================
+h1_close   = request.security(syminfo.tickerid, "60", close,   lookahead=barmerge.lookahead_on)
+h1_high    = request.security(syminfo.tickerid, "60", high,    lookahead=barmerge.lookahead_on)
+h1_low     = request.security(syminfo.tickerid, "60", low,     lookahead=barmerge.lookahead_on)
+h1_open    = request.security(syminfo.tickerid, "60", open,    lookahead=barmerge.lookahead_on)
+
+// =============================================================================
+// ATR(14) — dynamic, calculated on chart timeframe (M15)
+// =============================================================================
+atr_len = 14
+atr = ta.atr(atr_len)
+// =============================================================================
+// FAIR VALUE GAP (FVG) DETECTION — M15
+// A 3-candle imbalance where candle 1's wick and candle 3's wick don't overlap
+// =============================================================================
+fvg_bull = low > high[2]
+fvg_bear = high < low[2]
+
+float fvg_bull_top   = low
+float fvg_bull_bottom= high[2]
+float fvg_bear_top   = low[2]
+float fvg_bear_bottom= high
+
+max_fvg_bars = input.int(100, "Max FVG bars to keep visible", minval=10, maxval=500, group=grp_drawing)
+
+var line[] bull_fvg_lines = array.new<line>()
+var line[] bear_fvg_lines = array.new<line>()
+var label[] bull_fvg_labels = array.new<label>()
+var label[] bear_fvg_labels = array.new<label>()
+var float[] bull_fvg_tops   = array.new<float>()
+var float[] bull_fvg_bots   = array.new<float>()
+var float[] bear_fvg_tops   = array.new<float>()
+var float[] bear_fvg_bots   = array.new<float>()
+
+if bar_index > max_fvg_bars
+    // Clean up old FVG lines - keep only max_fvg_lines most recent
+    // Bullish FVG lines
+    while array.size(bull_fvg_lines) > max_fvg_lines
+        oldest = array.get(bull_fvg_lines, 0)
+        if not na(oldest)
+            line.delete(oldest)
+        array.remove(bull_fvg_lines, 0)
+    while array.size(bull_fvg_tops) > max_fvg_lines
+        array.remove(bull_fvg_tops, 0)
+    while array.size(bull_fvg_bots) > max_fvg_lines
+        array.remove(bull_fvg_bots, 0)
+    while array.size(bull_fvg_labels) > max_fvg_lines
+        oldest_lbl = array.get(bull_fvg_labels, 0)
+        if not na(oldest_lbl)
+            label.delete(oldest_lbl)
+        array.remove(bull_fvg_labels, 0)
+    
+    // Bearish FVG lines
+    while array.size(bear_fvg_lines) > max_fvg_lines
+        oldest = array.get(bear_fvg_lines, 0)
+        if not na(oldest)
+            line.delete(oldest)
+        array.remove(bear_fvg_lines, 0)
+    while array.size(bear_fvg_tops) > max_fvg_lines
+        array.remove(bear_fvg_tops, 0)
+    while array.size(bear_fvg_bots) > max_fvg_lines
+        array.remove(bear_fvg_bots, 0)
+    while array.size(bear_fvg_labels) > max_fvg_lines
+        oldest_lbl = array.get(bear_fvg_labels, 0)
+        if not na(oldest_lbl)
+            label.delete(oldest_lbl)
+        array.remove(bear_fvg_labels, 0)
+
+if show_fvg and fvg_bull
+    // Capacity guard: max 400 total elements across all FVG arrays
+    if array.size(bull_fvg_lines) < 400
+        ln = line.new(bar_index[2], fvg_bull_bottom, bar_index, fvg_bull_bottom, extend=extend.right, color=fvg_color_bull, style=line.style_solid, width=1)
+    else
+        ln = na
+    if array.size(bull_fvg_lines) < 400
+        ln2 = line.new(bar_index[2], fvg_bull_top, bar_index, fvg_bull_top, extend=extend.right, color=fvg_color_bull, style=line.style_solid, width=1)
+    else
+        ln2 = na
+    if array.size(bull_fvg_labels) < 400
+        lb = label.new(bar_index, fvg_bull_top, "FVG↑", style=label.style_label_up, color=fvg_color_bull, textcolor=color.white, size=size.small)
+    else
+        lb = na
+    
+    if not na(ln) and not na(ln2) and not na(lb)
+        array.push(bull_fvg_lines, ln)
+        array.push(bull_fvg_lines, ln2)
+        array.push(bull_fvg_tops, fvg_bull_top)
+        array.push(bull_fvg_bots, fvg_bull_bottom)
+        array.push(bull_fvg_labels, lb)
+
+if show_fvg and fvg_bear
+    // Capacity guard: max 400 total elements across all FVG arrays
+    if array.size(bear_fvg_lines) < 400
+        ln = line.new(bar_index[2], fvg_bear_top, bar_index, fvg_bear_top, extend=extend.right, color=fvg_color_bear, style=line.style_solid, width=1)
+    else
+        ln = na
+    if array.size(bear_fvg_lines) < 400
+        ln2 = line.new(bar_index[2], fvg_bear_bottom, bar_index, fvg_bear_bottom, extend=extend.right, color=fvg_color_bear, style=line.style_solid, width=1)
+    else
+        ln2 = na
+    if array.size(bear_fvg_labels) < 400
+        lb = label.new(bar_index, fvg_bear_bottom, "FVG↓", style=label.style_label_down, color=fvg_color_bear, textcolor=color.white, size=size.small)
+    else
+        lb = na
+    
+    if not na(ln) and not na(ln2) and not na(lb)
+        array.push(bear_fvg_lines, ln)
+        array.push(bear_fvg_lines, ln2)
+        array.push(bear_fvg_tops, fvg_bear_top)
+        array.push(bear_fvg_bots, fvg_bear_bottom)
+        array.push(bear_fvg_labels, lb)
+// =============================================================================
+// SWING HIGH / LOW — liquidity sweep detection
+// =============================================================================
+
+pivot_high = ta.pivothigh(high, swing_len, swing_len)
+pivot_low  = ta.pivotlow(low,  swing_len, swing_len)
+
+var float[] swing_highs = array.new<float>()
+var float[] swing_lows  = array.new<float>()
+var int[]   swing_high_bars = array.new<int>()
+var int[]   swing_low_bars  = array.new<int>()
+
+if not na(pivot_high)
+    array.push(swing_highs, pivot_high)
+    array.push(swing_high_bars, bar_index)
+if not na(pivot_low)
+    array.push(swing_lows, pivot_low)
+    array.push(swing_low_bars, bar_index)
+
+var label[] sweep_labels = array.new<label>()
+var line[]  sweep_lines  = array.new<line>()
+
+if array.size(swing_lows) > 0
+    recent_sw_low = array.get(swing_lows, array.size(swing_lows) - 1)
+    sw_low_bar    = array.get(swing_low_bars, array.size(swing_low_bars) - 1)
+    bullish_sweep = low < recent_sw_low and close > recent_sw_low and bar_index > sw_low_bar + swing_len
+    if show_sweep and bullish_sweep
+        ln = line.new(sw_low_bar, recent_sw_low, bar_index, recent_sw_low, color=color.new(color.green, 40), width=1, style=line.style_dashed)
+        lb = label.new(bar_index, low, "Sweep↑", style=label.style_label_up, color=color.green, textcolor=color.white, size=size.small)
+        array.push(sweep_lines, ln)
+        array.push(sweep_labels, lb)
+
+if array.size(swing_highs) > 0
+    recent_sw_high = array.get(swing_highs, array.size(swing_highs) - 1)
+    sw_high_bar    = array.get(swing_high_bars, array.size(swing_high_bars) - 1)
+    bearish_sweep = high > recent_sw_high and close < recent_sw_high and bar_index > sw_high_bar + swing_len
+    if show_sweep and bearish_sweep
+        ln = line.new(sw_high_bar, recent_sw_high, bar_index, recent_sw_high, color=color.new(color.red, 40), width=1, style=line.style_dashed)
+        lb = label.new(bar_index, high, "Sweep↓", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.small)
+        array.push(sweep_lines, ln)
+        array.push(sweep_labels, lb)
+
+if bar_index > max_fvg_bars
+    if array.size(sweep_lines) > 0
+        for i = 0 to array.size(sweep_lines) - 1
+            ln = array.get(sweep_lines, i)
+            if not na(ln)
+                line.delete(ln)
+        array.clear(sweep_lines)
+    if array.size(sweep_labels) > 0
+        for i = 0 to array.size(sweep_labels) - 1
+            lb = array.get(sweep_labels, i)
+            if not na(lb)
+                label.delete(lb)
+        array.clear(sweep_labels)
+// =============================================================================
+// MARKET STRUCTURE — BOS / CHoCH on H1
+// =============================================================================
+h1_ph = ta.pivothigh(h1_high, 3, 3)
+h1_pl = ta.pivotlow(h1_low,  3, 3)
+
+var float last_h1_ph = na
+var float last_h1_pl = na
+var int   last_h1_ph_bar = na
+var int   last_h1_pl_bar = na
+var string h1_trend = "NEUTRAL"
+var color  h1_trend_color = color.gray
+
+if not na(h1_ph)
+    last_h1_ph := h1_ph
+    last_h1_ph_bar := bar_index
+if not na(h1_pl)
+    last_h1_pl := h1_pl
+    last_h1_pl_bar := bar_index
+
+bullish_bos = not na(last_h1_ph) and h1_close > last_h1_ph
+bearish_bos = not na(last_h1_pl) and h1_close < last_h1_pl
+
+bullish_choch = h1_trend == "BEARISH" and bullish_bos
+bearish_choch = h1_trend == "BULLISH" and bearish_bos
+
+if bullish_bos or bearish_bos
+    if bullish_bos
+        h1_trend := "BULLISH"
+        h1_trend_color := color.green
+    else
+        h1_trend := "BEARISH"
+        h1_trend_color := color.red
+
+var label trend_lbl = na
+if not na(trend_lbl)
+    label.delete(trend_lbl)
+trend_lbl := label.new(bar_index, high, "H1: " + h1_trend, style=label.style_label_left, color=h1_trend_color, textcolor=color.white, size=size.small)
+// =============================================================================
+// SIGNAL GENERATION — Model 3 (Trend Continuation)
+// =============================================================================
+var float m3_entry = na
+var float m3_sl    = na
+var float m3_tp3   = na
+var float m3_tp4   = na
+var int   m3_dir   = 0
+var bool  m3_active= false
+
+var float m1_entry = na
+var float m1_sl    = na
+var float m1_tp3   = na
+var float m1_tp4   = na
+var int   m1_dir   = 0
+var bool  m1_active= false
+var line ln_m3_entry = na
+var line ln_m3_sl    = na
+var line ln_m3_tp3   = na
+var line ln_m3_tp4   = na
+var line ln_m1_entry = na
+
+float bullish_fvg_zone = na
+float bearish_fvg_zone = na
+
+if array.size(bull_fvg_labels) > 0 and show_m3
+    n = array.size(bull_fvg_lines)
+    if n >= 2
+        ln_bot = array.get(bull_fvg_lines, n - 2)
+        ln_top = array.get(bull_fvg_lines, n - 1)
+        if not na(ln_bot) and not na(ln_top)
+            f_bot = array.get(bull_fvg_bots, n - 2)
+            f_top = array.get(bull_fvg_tops, n - 1)
+            if low <= f_top and high >= f_bot and h1_trend == "BULLISH" and not m3_active
+                bullish_fvg_zone := (f_bot + f_top) / 2
+
+if array.size(bear_fvg_labels) > 0 and show_m3
+    n = array.size(bear_fvg_lines)
+    if n >= 2
+        ln_top = array.get(bear_fvg_lines, n - 2)
+        ln_bot = array.get(bear_fvg_lines, n - 1)
+        if not na(ln_top) and not na(ln_bot)
+            f_top = array.get(bear_fvg_tops, n - 2)
+            f_bot = array.get(bear_fvg_bots, n - 1)
+            if high >= f_bot and low <= f_top and h1_trend == "BEARISH" and not m3_active
+                bearish_fvg_zone := (f_top + f_bot) / 2
+
+m3_long_condition = not na(bullish_fvg_zone) and h1_trend == "BULLISH" and not m3_active and show_m3
+if m3_long_condition and not na(m3_entry) and not na(m3_sl_atr) and m3_rr > 0
+    m3_entry := bullish_fvg_zone
+    m3_sl    := low - m3_sl_atr * atr
+    risk_dist = math.abs(nz(m3_entry, 0) - nz(m3_sl, 0))
+    m3_tp3   := nz(m3_entry, 0) + nz(m3_rr, 0) * risk_dist
+    m3_tp4   := nz(m3_entry, 0) + 4 * risk_dist
+    m3_dir   := 1
+    m3_active:= true
+
+m3_short_condition = not na(bearish_fvg_zone) and h1_trend == "BEARISH" and not m3_active and show_m3
+if m3_short_condition and not na(m3_entry) and not na(m3_sl_atr) and m3_rr > 0
+    m3_entry := bearish_fvg_zone
+    m3_sl    := high + m3_sl_atr * atr
+    risk_dist = math.abs(nz(m3_entry, 0) - nz(m3_sl, 0))
+    m3_tp3   := nz(m3_entry, 0) - nz(m3_rr, 0) * risk_dist
+    m3_tp4   := nz(m3_entry, 0) - 4 * risk_dist
+    m3_dir   := -1
+    m3_active:= true
+
+// =============================================================================
+// SIGNAL GENERATION — Model 1 (News Fade / Spike Fade)
+// =============================================================================
+
+is_spike_up   = (high - low) >= spike_mult * atr and close < open
+is_spike_down = (high - low) >= spike_mult * atr and close > open
+
+m1_short_condition = is_spike_up and not na(bearish_fvg_zone) and not m1_active and show_m1
+if m1_short_condition and not na(m1_entry) and not na(m1_sl_atr) and m1_rr > 0
+    m1_entry := bearish_fvg_zone
+    m1_sl    := high + m1_sl_atr * atr
+    risk_dist = math.abs(nz(m1_entry, 0) - nz(m1_sl, 0))
+    m1_tp3   := nz(m1_entry, 0) - nz(m1_rr, 0) * risk_dist
+    m1_tp4   := nz(m1_entry, 0) - 4 * risk_dist
+
+m1_long_condition = is_spike_down and not na(bullish_fvg_zone) and not m1_active and show_m1
+if m1_long_condition and not na(m1_entry) and not na(m1_sl_atr) and m1_rr > 0
+    m1_entry := bullish_fvg_zone
+    m1_sl    := low - m1_sl_atr * atr
+    risk_dist = math.abs(nz(m1_entry, 0) - nz(m1_sl, 0))
+    m1_tp3   := nz(m1_entry, 0) + nz(m1_rr, 0) * risk_dist
+    m1_tp4   := nz(m1_entry, 0) + 4 * risk_dist
+    m1_dir   := -1
+    m1_active:= true
+
+m1_long_condition = is_spike_down and not na(bullish_fvg_zone) and not m1_active and show_m1
+if m1_long_condition
+    m1_entry := bullish_fvg_zone
+    m1_sl    := low - m1_sl_atr * atr
+    risk_dist = math.abs(m1_entry - m1_sl)
+    m1_tp3   := m1_entry + m1_rr * risk_dist
+    m1_tp4   := m1_entry + 4 * risk_dist
+    m1_dir   := 1
+    m1_active:= true
+
+if m1_active
+    if m1_dir == 1 and low <= m1_sl
+        m1_active := false
+        m1_dir := 0
+    if m1_dir == -1 and high >= m1_sl
+        m1_active := false
+        m1_dir := 0
+
+// =============================================================================
+// LOT SIZE CALCULATION (1% risk)
+// =============================================================================
+calc_lot_size(entry_price, sl_price, risk_pct_in) =>
+    risk_cash = acct_balance * (risk_pct_in / 100.0)
+    stop_dist = math.abs(entry_price - sl_price)
+    lots = stop_dist > 0 ? risk_cash / (stop_dist * oz_per_lot) : 0.0
+    lots = math.round(lots / lot_step) * lot_step
+    lots = math.min(math.max(lots, lot_min), lot_max)
+    lots
+
+float m3_lots = na
+float m1_lots = na
+// =============================================================================
+// PLOTTING — Entry / SL / TP levels
+// =============================================================================
+if show_levels
+    // Delete previous lines to avoid exceeding the 500-line limit
+    if not na(ln_m3_entry)
+        line.delete(ln_m3_entry)
+        ln_m3_entry := na
+    if not na(ln_m3_sl)
+        line.delete(ln_m3_sl)
+        ln_m3_sl := na
+    if not na(ln_m3_tp3)
+        line.delete(ln_m3_tp3)
+        ln_m3_tp3 := na
+    if not na(ln_m3_tp4)
+        line.delete(ln_m3_tp4)
+        ln_m3_tp4 := na
+    if not na(ln_m1_entry)
+        line.delete(ln_m1_entry)
+        ln_m1_entry := na
+
+    if not na(m3_entry)
+        ln_m3_entry := line.new(bar_index, m3_entry, bar_index + 10, m3_entry, extend=extend.right, color=color.new(color.blue, 30), width=2)
+        ln_m3_sl    := line.new(bar_index, m3_sl,    bar_index + 10, m3_sl,    extend=extend.right, color=color.new(color.red, 50), width=2)
+        ln_m3_tp3   := line.new(bar_index, m3_tp3,   bar_index + 10, m3_tp3,   extend=extend.right, color=color.new(color.green, 50), width=2)
+        ln_m3_tp4   := line.new(bar_index, m3_tp4,   bar_index + 10, m3_tp4,   extend=extend.right, color=color.new(color.green, 70), width=1, style=line.style_dashed)
+    if not na(m1_entry)
+        ln_m1_entry := line.new(bar_index, m1_entry, bar_index + 10, m1_entry, extend=extend.right, color=color.new(color.orange, 30), width=2)
+else
+    // Hide/delete lines when show_levels is disabled
+    if not na(ln_m3_entry)
+        line.delete(ln_m3_entry)
+        ln_m3_entry := na
+    if not na(ln_m3_sl)
+        line.delete(ln_m3_sl)
+        ln_m3_sl := na
+    if not na(ln_m3_tp3)
+        line.delete(ln_m3_tp3)
+        ln_m3_tp3 := na
+    if not na(ln_m3_tp4)
+        line.delete(ln_m3_tp4)
+        ln_m3_tp4 := na
+    if not na(ln_m1_entry)
+        line.delete(ln_m1_entry)
+        ln_m1_entry := na
+// =============================================================================
+// DASHBOARD TABLE — on-chart display
+// =============================================================================
+var table dash_table = table.new(position.top_right, 2, 6, bgcolor=color.new(color.black, 0.8), border_width=1, border_color=color.gray)
+
+if not na(dash_table)
+ table.cell(dash_table, 0, 0, "XAUUSD Hybrid Suite", text_color=color.yellow, text_size=size.small, width=120)
+if not na(dash_table)
+ table.cell(dash_table, 0, 1, "Status", text_color=color.yellow, text_size=size.small)
+
+m3_status = m3_active ? (m3_dir == 1 ? "LONG ACTIVE" : "SHORT ACTIVE") : "WAITING"
+m3_color  = m3_active ? (m3_dir == 1 ? color.green : color.red) : color.gray
+if not na(dash_table)
+ table.cell(dash_table, 1, 0, "Model 3 (Trend Cont.)", text_color=color.white, text_size=size.small)
+if not na(dash_table)
+ table.cell(dash_table, 1, 1, m3_status, text_color=m3_color, text_size=size.small)
+
+if not na(m3_entry) and not na(dash_table)
+    table.cell(dash_table, 2, 0, "M3 Entry", text_color=color.white, text_size=size.tiny)
+    table.cell(dash_table, 2, 1, str.tostring(m3_entry, "#.##"), text_color=color.blue, text_size=size.tiny)
+    table.cell(dash_table, 3, 0, "M3 SL", text_color=color.white, text_size=size.tiny)
+    table.cell(dash_table, 3, 1, str.tostring(m3_sl, "#.##"), text_color=color.red, text_size=size.tiny)
+    table.cell(dash_table, 4, 0, "M3 TP (1:" + str.tostring(m3_rr) + ")", text_color=color.white, text_size=size.tiny)
+    table.cell(dash_table, 4, 1, str.tostring(m3_tp3, "#.##"), text_color=color.green, text_size=size.tiny)
+    table.cell(dash_table, 5, 0, "M3 Lots (1% risk)", text_color=color.white, text_size=size.tiny)
+    table.cell(dash_table, 5, 1, str.tostring(m3_lots, "#.##"), text_color=color.yellow, text_size=size.tiny)
+else
+    if not na(dash_table)
+     table.cell(dash_table, 2, 0, "M3 Entry", text_color=color.white, text_size=size.tiny)
+     table.cell(dash_table, 2, 1, "—", text_color=color.gray, text_size=size.tiny)
+     table.cell(dash_table, 3, 0, "M3 SL", text_color=color.white, text_size=size.tiny)
+     table.cell(dash_table, 3, 1, "—", text_color=color.gray, text_size=size.tiny)
+     table.cell(dash_table, 4, 0, "M3 TP", text_color=color.white, text_size=size.tiny)
+     table.cell(dash_table, 4, 1, "—", text_color=color.gray, text_size=size.tiny)
+     table.cell(dash_table, 5, 0, "M3 Lots", text_color=color.white, text_size=size.tiny)
+     table.cell(dash_table, 5, 1, "—", text_color=color.gray, text_size=size.tiny)
+
+m1_status = m1_active ? (m1_dir == 1 ? "LONG ACTIVE" : "SHORT ACTIVE") : "WAITING"
+m1_color  = m1_active ? (m1_dir == 1 ? color.green : color.red) : color.gray
+table.cell(dash_table, 6, 0, "Model 1 (News Fade)", text_color=color.white, text_size=size.small)
+table.cell(dash_table, 6, 1, m1_status, text_color=m1_color, text_size=size.small)
+
+if not na(m1_entry) and not na(dash_table)
+    table.cell(dash_table, 7, 0, "M1 Entry", text_color=color.white, text_size=size.tiny)
+    table.cell(dash_table, 7, 1, str.tostring(m1_entry, "#.##"), text_color=color.orange, text_size=size.tiny)
+    table.cell(dash_table, 8, 0, "M1 SL", text_color=color.white, text_size=size.tiny)
+    table.cell(dash_table, 8, 1, str.tostring(m1_sl, "#.##"), text_color=color.red, text_size=size.tiny)
+    table.cell(dash_table, 9, 0, "M1 TP (1:" + str.tostring(m1_rr) + ")", text_color=color.white, text_size=size.tiny)
+    table.cell(dash_table, 9, 1, str.tostring(m1_tp3, "#.##"), text_color=color.green, text_size=size.tiny)
+    table.cell(dash_table, 10, 0, "M1 Lots (1% risk)", text_color=color.white, text_size=size.tiny)
+    table.cell(dash_table, 10, 1, str.tostring(m1_lots, "#.##"), text_color=color.yellow, text_size=size.tiny)
+else
+    if not na(dash_table)
+     table.cell(dash_table, 7, 0, "M1 Entry", text_color=color.white, text_size=size.tiny)
+     table.cell(dash_table, 7, 1, "—", text_color=color.gray, text_size=size.tiny)
+     table.cell(dash_table, 8, 0, "M1 SL", text_color=color.white, text_size=size.tiny)
+     table.cell(dash_table, 8, 1, "—", text_color=color.gray, text_size=size.tiny)
+     table.cell(dash_table, 9, 0, "M1 TP", text_color=color.white, text_size=size.tiny)
+     table.cell(dash_table, 9, 1, "—", text_color=color.gray, text_size=size.tiny)
+     table.cell(dash_table, 10, 0, "M1 Lots", text_color=color.white, text_size=size.tiny)
+     table.cell(dash_table, 10, 1, "—", text_color=color.gray, text_size=size.tiny)
+
+if not na(dash_table)
+ table.cell(dash_table, 11, 0, "H1 Trend", text_color=color.white, text_size=size.tiny)
+if not na(dash_table)
+ table.cell(dash_table, 11, 1, h1_trend, text_color=h1_trend_color, text_size=size.tiny)
+
+if not na(dash_table)
+ table.cell(dash_table, 12, 0, "ATR(14)", text_color=color.white, text_size=size.tiny)
+if not na(dash_table)
+ table.cell(dash_table, 12, 1, str.tostring(atr, "#.##"), text_color=color.white, text_size=size.tiny)
+
+// =============================================================================
+// SESSION BACKGROUND — London/NY only
+// =============================================================================
+
+is_london = hour(time + session_offset * 3600 * 1000) >= 8 and hour(time + session_offset * 3600 * 1000) < 12
+is_ny     = hour(time + session_offset * 3600 * 1000) >= 13 and hour(time + session_offset * 3600 * 1000) < 17
+bgcolor(is_london or is_ny ? color.new(color.blue, 95) : na, title="Active Session")
+
+// =============================================================================
+// PLOT — H1 swing levels (visual reference)
+// =============================================================================
+plot(show_bos and not na(last_h1_ph) ? last_h1_ph : na, color=color.new(color.red, 60), style=plot.style_linebr, title="H1 Swing High")
+plot(show_bos and not na(last_h1_pl) ? last_h1_pl : na, color=color.new(color.green, 60), style=plot.style_linebr, title="H1 Swing Low")
+
+// =============================================================================
+// ALERT CONDITIONS — webhook for Telegram / Modal Sentinel
+// =============================================================================
+alertcondition(m3_long_condition,  title="M3 Long Entry",  message="Model 3 LONG: entry={{close}} sl={{close - m3_sl_atr*atr}} tp={{close + 3*(close - (close - m3_sl_atr*atr))}} lots={{{m3_lots}}}")
+alertcondition(m3_short_condition, title="M3 Short Entry", message="Model 3 SHORT: entry={{close}} sl={{close + m3_sl_atr*atr}} tp={{close - 3*((close + m3_sl_atr*atr) - close)}} lots={{{m3_lots}}}")
+alertcondition(m1_long_condition,  title="M1 Long Entry",  message="Model 1 LONG (News Fade): entry={{close}} sl={{close - m1_sl_atr*atr}} tp={{close + 3*(close - (close - m1_sl_atr*atr))}} lots={{{m1_lots}}}")
+alertcondition(m1_short_condition, title="M1 Short Entry", message="Model 1 SHORT (News Fade): entry={{close}} sl={{close + m1_sl_atr*atr}} tp={{close - 3*((close + m1_sl_atr*atr) - close)}} lots={{{m1_lots}}}")
+alertcondition(bullish_bos,        title="H1 Bullish BOS", message="H1 Bullish BOS detected — trend turned bullish")
+alertcondition(bearish_bos,        title="H1 Bearish BOS", message="H1 Bearish BOS detected — trend turned bearish")
+if not na(m3_entry) and not na(m3_sl)
+    m3_lots := calc_lot_size(m3_entry, m3_sl, risk_pct)
+if not na(m1_entry) and not na(m1_sl)
+    m1_lots := calc_lot_size(m1_entry, m1_sl, risk_pct)
+
+// =============================================================================
+// M3 POSITION EXIT — stop loss hit
+// =============================================================================
+if m3_dir == 1 and low <= m3_sl
+    m3_active := false
+    m3_dir := 0
+if m3_dir == -1 and high >= m3_sl
+    m3_active := false
+    m3_dir := 0

@@ -1,0 +1,320 @@
+{
+  "generated_at_utc": "2026-10-27T17:33:57.990910+00:00",
+  "data": {
+    "rows": 46460,
+    "start": "2024-10-21T01:00:00",
+    "end": "2026-10-19T13:00:00",
+    "timeframe": "M15",
+    "split": "70% IS / 30% OOS chronological"
+  },
+  "ranking": "OOS Profit Factor descending, then Sharpe descending, then Max Drawdown ascending",
+  "max_oos_drawdown_filter_percent": 20.0,
+  "strategies": [
+    {
+      "strategy": "smc_ict_fvg_bos_retest",
+      "parameters": {
+        "swing_period": 20,
+        "mitigation_bars": 8,
+        "rsi_long_min": 50,
+        "rsi_short_max": 50,
+        "ema_period": 200,
+        "rsi_period": 21
+      },
+      "metrics": {
+        "is": {
+          "trades": 214,
+          "profit_factor": 0.993933,
+          "win_rate": 29.906542,
+          "max_drawdown": 20.402579,
+          "sharpe_ratio": 0.093812,
+          "total_return": -0.699093
+        },
+        "out_of_sample": {
+          "trades": 85,
+          "profit_factor": 1.088639,
+          "win_rate": 29.411765,
+          "max_drawdown": 15.432855,
+          "sharpe_ratio": 0.531105,
+          "total_return": 4.591676
+        },
+        "score": 0.449772
+      }
+    },
+    {
+      "strategy": "smc_ict_fvg_bos_retest",
+      "parameters": {
+        "swing_period": 20,
+        "mitigation_bars": 3,
+        "rsi_long_min": 50,
+        "rsi_short_max": 50,
+        "ema_period": 200,
+        "rsi_period": 21
+      },
+      "metrics": {
+        "is": {
+          "trades": 204,
+          "profit_factor": 1.026834,
+          "win_rate": 32.843137,
+          "max_drawdown": 20.397922,
+          "sharpe_ratio": 0.252969,
+          "total_return": 3.011308
+        },
+        "out_of_sample": {
+          "trades": 82,
+          "profit_factor": 1.03894,
+          "win_rate": 26.829268,
+          "max_drawdown": 15.336401,
+          "sharpe_ratio": 0.314483,
+          "total_return": 1.976896
+        },
+        "score": 0.350741
+      }
+    },
+    {
+      "strategy": "smc_ict_fvg_bos_retest",
+      "parameters": {
+        "swing_period": 20,
+        "mitigation_bars": 15,
+        "rsi_long_min": 50,
+        "rsi_short_max": 50,
+        "ema_period": 200,
+        "rsi_period": 21
+      },
+      "metrics": {
+        "is": {
+          "trades": 220,
+          "profit_factor": 0.959065,
+          "win_rate": 29.545455,
+          "max_drawdown": 20.402579,
+          "sharpe_ratio": -0.0874,
+          "total_return": -4.784504
+        },
+        "out_of_sample": {
+          "trades": 91,
+          "profit_factor": 1.001767,
+          "win_rate": 28.571429,
+          "max_drawdown": 15.491805,
+          "sharpe_ratio": 0.155164,
+          "total_return": 0.102835
+        },
+        "score": 0.265968
+      }
+    },
+    {
+      "strategy": "smc_ict_fvg_bos_retest",
+      "parameters": {
+        "swing_period": 10,
+        "mitigation_bars": 8,
+        "rsi_long_min": 50,
+        "rsi_short_max": 50,
+        "ema_period": 200,
+        "rsi_period": 21
+      },
+      "metrics": {
+        "is": {
+          "trades": 263,
+          "profit_factor": 0.921306,
+          "win_rate": 26.996198,
+          "max_drawdown": 24.338391,
+          "sharpe_ratio": -0.300962,
+          "total_return": -9.265072
+        },
+        "out_of_sample": {
+          "trades": 108,
+          "profit_factor": 0.976974,
+          "win_rate": 25.0,
+          "max_drawdown": 18.251102,
+          "sharpe_ratio": 0.024648,
+          "total_return": -1.401868
+        },
+        "score": 0.070581
+      }
+    },
+    {
+      "strategy": "smc_ict_fvg_bos_retest",
+      "parameters": {
+        "swing_period": 5,
+        "mitigation_bars": 8,
+        "rsi_long_min": 50,
+        "rsi_short_max": 50,
+        "ema_period": 200,
+        "rsi_period": 21
+      },
+      "metrics": {
+        "is": {
+          "trades": 311,
+          "profit_factor": 0.824402,
+          "win_rate": 22.829582,
+          "max_drawdown": 30.301653,
+          "sharpe_ratio": -0.926094,
+          "total_return": -21.470053
+        },
+        "out_of_sample": {
+          "trades": 130,
+          "profit_factor": 0.931014,
+          "win_rate": 24.615385,
+          "max_drawdown": 17.454665,
+          "sharpe_ratio": -0.250254,
+          "total_return": -4.603252
+        },
+        "score": -0.004283
+      }
+    },
+    {
+      "strategy": "smc_ict_fvg_bos_retest",
+      "parameters": {
+        "swing_period": 20,
+        "mitigation_bars": 8,
+        "rsi_long_min": 50,
+        "rsi_short_max": 50,
+        "ema_period": 100,
+        "rsi_period": 21
+      },
+      "metrics": {
+        "is": {
+          "trades": 305,
+          "profit_factor": 1.014036,
+          "win_rate": 30.163934,
+          "max_drawdown": 19.882769,
+          "sharpe_ratio": 0.201998,
+          "total_return": 1.834217
+        },
+        "out_of_sample": {
+          "trades": 119,
+          "profit_factor": 0.921537,
+          "win_rate": 33.613445,
+          "max_drawdown": 16.473941,
+          "sharpe_ratio": -0.274467,
+          "total_return": -4.768891
+        },
+        "score": 0.029223
+      }
+    },
+    {
+      "strategy": "smc_ict_fvg_bos_retest",
+      "parameters": {
+        "swing_period": 5,
+        "mitigation_bars": 3,
+        "rsi_long_min": 50,
+        "rsi_short_max": 50,
+        "ema_period": 200,
+        "rsi_period": 21
+      },
+      "metrics": {
+        "is": {
+          "trades": 296,
+          "profit_factor": 0.850446,
+          "win_rate": 24.324324,
+          "max_drawdown": 28.570989,
+          "sharpe_ratio": -0.742314,
+          "total_return": -18.090473
+        },
+        "out_of_sample": {
+          "trades": 125,
+          "profit_factor": 0.90338,
+          "win_rate": 24.0,
+          "max_drawdown": 18.75736,
+          "sharpe_ratio": -0.394039,
+          "total_return": -6.214209
+        },
+        "score": -0.132998
+      }
+    },
+    {
+      "strategy": "smc_ict_fvg_bos_retest",
+      "parameters": {
+        "swing_period": 20,
+        "mitigation_bars": 15,
+        "rsi_long_min": 50,
+        "rsi_short_max": 50,
+        "ema_period": 100,
+        "rsi_period": 21
+      },
+      "metrics": {
+        "is": {
+          "trades": 313,
+          "profit_factor": 0.987408,
+          "win_rate": 29.392971,
+          "max_drawdown": 19.263618,
+          "sharpe_ratio": 0.046865,
+          "total_return": -1.678044
+        },
+        "out_of_sample": {
+          "trades": 126,
+          "profit_factor": 0.898811,
+          "win_rate": 32.539683,
+          "max_drawdown": 16.190633,
+          "sharpe_ratio": -0.441693,
+          "total_return": -6.59512
+        },
+        "score": -0.021144
+      }
+    },
+    {
+      "strategy": "smc_ict_fvg_bos_retest",
+      "parameters": {
+        "swing_period": 20,
+        "mitigation_bars": 3,
+        "rsi_long_min": 50,
+        "rsi_short_max": 50,
+        "ema_period": 100,
+        "rsi_period": 21
+      },
+      "metrics": {
+        "is": {
+          "trades": 291,
+          "profit_factor": 1.044492,
+          "win_rate": 32.302405,
+          "max_drawdown": 18.765623,
+          "sharpe_ratio": 0.367302,
+          "total_return": 5.703721
+        },
+        "out_of_sample": {
+          "trades": 115,
+          "profit_factor": 0.875103,
+          "win_rate": 33.913043,
+          "max_drawdown": 18.044811,
+          "sharpe_ratio": -0.55482,
+          "total_return": -7.731951
+        },
+        "score": -0.165843
+      }
+    }
+  ],
+  "comparison": {
+    "SMC/ICT": {
+      "parameters": {
+        "swing_period": 20,
+        "mitigation_bars": 8,
+        "rsi_long_min": 50,
+        "rsi_short_max": 50,
+        "ema_period": 200,
+        "rsi_period": 21
+      },
+      "out_of_sample": {
+        "trades": 85,
+        "profit_factor": 1.088639,
+        "win_rate": 29.411765,
+        "max_drawdown": 15.432855,
+        "sharpe_ratio": 0.531105,
+        "total_return": 4.591676
+      }
+    },
+    "Retail EMA/RSI": {
+      "parameters": {
+        "ema_period": 200,
+        "rsi_period": 21,
+        "rsi_long_min": 50,
+        "rsi_short_max": 50
+      },
+      "out_of_sample": {
+        "trades": 306,
+        "profit_factor": 0.721137,
+        "win_rate": 15.03268,
+        "max_drawdown": 36.884214,
+        "sharpe_ratio": -2.356907,
+        "total_return": -26.869972
+      }
+    }
+  }
+}
