@@ -16,6 +16,7 @@ Then open http://localhost:8501
 """
 import os
 import json
+import hmac
 import sys
 from datetime import datetime, timedelta
 
@@ -34,6 +35,27 @@ KILL_SWITCH_PCT = 2.0      # daily equity drawdown that halts trading
 RISK_CHOICES = {"0.25%": 0.25, "0.5%": 0.5, "1.0%": 1.0, "2.0%": 2.0}
 DEFAULT_SYMBOLS = ["XAUUSD", "EURUSD", "GBPUSD"]
 RETCODE_OK = 10009          # TRADE_RETCODE_DONE
+
+
+def require_dashboard_auth() -> None:
+    """Require the configured dashboard password before rendering the terminal."""
+    expected = os.environ.get("DASHBOARD_PASSWORD", "")
+    if not expected:
+        st.error("DASHBOARD_PASSWORD is not configured; dashboard access is disabled.")
+        st.stop()
+    if st.session_state.get("dashboard_authenticated"):
+        return
+    st.title("MT5 Risk Terminal")
+    supplied = st.text_input("Dashboard password", type="password")
+    if st.button("Sign in"):
+        if hmac.compare_digest(supplied, expected):
+            st.session_state["dashboard_authenticated"] = True
+            st.rerun()
+        st.error("Invalid dashboard password.")
+    st.stop()
+
+
+require_dashboard_auth()
 
 
 # --- MT5 connection ---------------------------------------------------------

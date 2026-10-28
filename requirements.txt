@@ -1,0 +1,12 @@
+numpy==1.26.4
+pandas==2.2.3
+requests==2.32.3
+python-dotenv==1.0.1
+torch==2.5.1
+neuralforecast==1.7.5
+transformers==4.47.1
+vectorbt==0.26.2
+modal==0.73.101
+streamlit==1.41.1
+yfinance==0.2.51
+pyfredapi==0.10.2

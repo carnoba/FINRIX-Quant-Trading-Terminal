@@ -12,6 +12,9 @@ from typing import Any, Iterable, Mapping, Optional
 import numpy as np
 import pandas as pd
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 try:
     import yfinance as yf

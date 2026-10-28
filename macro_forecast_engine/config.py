@@ -6,6 +6,9 @@ Set variables in .env file or export them before running.
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Base directory resolved relative to this file
 BASE_DIR = Path(__file__).resolve().parent

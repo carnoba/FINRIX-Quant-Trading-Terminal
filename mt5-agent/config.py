@@ -6,6 +6,9 @@ Sensitive values (broker credentials) should NEVER be hard-coded.
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Base directory anchored to this file
 BASE_DIR = Path(__file__).resolve().parent

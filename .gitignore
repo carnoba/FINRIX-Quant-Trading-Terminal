@@ -18,12 +18,20 @@ __pycache__/
 .modal/
 
 # --- Data & Results (generated at runtime) ---
-data/*.json
-results/**/*
-cache/**/*
+**/data/*.json
+**/results/**/*
+**/cache/**/*
+**/*.log
+*.log
+**/*_output*.txt
+**/results_summary.txt
+**/count.txt
+**/full_output.txt
+**/verify_out.log
+**/pull.log
 
 # --- Large Data Files (CSV - >100MB) - GitHub safe ---
-data/*.csv
+**/data/*.csv
 *.csv
 
 # --- IDE & Editor Specific ---

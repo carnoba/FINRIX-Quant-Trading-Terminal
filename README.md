@@ -73,8 +73,8 @@ The **Institutional Macro-Gated Quantitative XAUUSD Forecasting & Execution Engi
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/macro-quant-engine.git
-cd macro-quant-engine
+git clone https://github.com/carnoba/trading-prediction.git
+cd trading-prediction
 ```
 
 ### 2. Create & Activate Virtual Environment
@@ -102,11 +102,12 @@ cp .env.example .env
 # Edit .env with your API keys and settings
 ```
 
-**Required `.env` variables:**
+**Required `.env` variables for Modal execution:**
 
 ```
 FRED_API_KEY=your_fred_api_key_here      # From https://fred.stlouisfed.org/docs/api/fred/auth.html
 MODAL_TOKEN=your_modal_token_here        # From https://modal.com/docs/reference/token
+DASHBOARD_PASSWORD=replace_with_a_strong_random_password
 ```
 
 **Optional `.env` variables:**
@@ -128,11 +129,8 @@ MODE=monthly                            # "monthly" or "yearly"
 ### 5. Verify Installation
 
 ```bash
-python -m pytest tests/ -v
-# Or run a quick test:
-python import_test.py
-python test_import.py
-python test_run.py
+python -m compileall -q .
+python mt5-agent/gold_backtest_engine.py --help
 ```
 
 ## 🙏 Acknowledgments
@@ -149,19 +147,15 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🧪 Testing
 
 ```bash
-# Run all tests
-python -m pytest tests/ -v
-
-# Quick import verification
-python import_test.py
-python test_import.py  
-python test_run.py
+# Syntax and import verification
+python -m compileall -q .
+python mt5-agent/gold_backtest_engine.py --help
 
 # Linting
 pylint mt5-agent/ macro_forecast_engine/
 
-# Syntax check
-python -m py_compile mt5-agent/*.py macro_forecast_engine/*.py
+# Local forecast fallback
+python mt5-agent/macro_forecast_engine/run_engine.py --local --horizon 21
 ```
 ## 🔒 Security & Best Practices
 
@@ -184,13 +178,12 @@ python -m py_compile mt5-agent/*.py macro_forecast_engine/*.py
 - Daily drawdown kill-switch at 2.0% equity
 - Mandatory Stop-Loss and Take-Profit on every order
 - No hardcoded broker credentials in source
-```
 ## 🎮 CLI Commands
 
-### Main Engine CLI
+### Backtest CLI
 
 ```bash
-python -m mt5_agent.gold_backtest_engine --help
+python mt5-agent/gold_backtest_engine.py --help
 ```
 
 ### Supported Arguments
@@ -207,26 +200,26 @@ python -m mt5_agent.gold_backtest_engine --help
 
 ```bash
 # Monthly forecast mode (default)
-python -m mt5_agent.gold_backtest_engine --mode monthly --period "60d" --interval "1h"
+python mt5-agent/gold_backtest_engine.py --mode monthly --period "60d" --interval "1h"
 
 # Yearly forecast mode
-python -m mt5_agent.gold_backtest_engine --mode yearly --period "365d" --interval "1d"
+python mt5-agent/gold_backtest_engine.py --mode yearly --period "365d" --interval "1d"
 
 # Long-only (no short selling)
-python -m mt5_agent.gold_backtest_engine --mode monthly --long-only
+python mt5-agent/gold_backtest_engine.py --mode monthly --long-only
 
 # Custom output path
-python -m mt5_agent.gold_backtest_engine --mode monthly --output ./data/my_strategies.json
+python mt5-agent/gold_backtest_engine.py --mode monthly --output ./data/my_strategies.json
 ```
 
-### Modal GPU CLI
+### Forecast CLI
 
 ```bash
 # Run forecast on Modal GPU
-modal run forecast_engine.py --mode yearly
+python -m modal run macro_forecast_engine/modal_engine.py --mode yearly
 
-# Run with custom horizon
-modal run forecast_engine.py --mode monthly --gpu A100
+# Run monthly forecast
+python -m modal run macro_forecast_engine/modal_engine.py --mode monthly
 ```
 ## 🚀 Modal GPU Setup Guide
 
@@ -245,31 +238,19 @@ export MODAL_TOKEN="your_modal_token_here"
 ### 2. Deploy to Modal
 
 ```bash
-modal deploy modal_config.py
+python -m modal deploy mt5-agent/macro_forecast_engine/modal_engine.py
 # Or run inline:
-modal run forecast_engine.py --mode monthly
+python -m modal run macro_forecast_engine/modal_engine.py --mode monthly
 ```
 
 ### 3. Modal Configuration Example
 
-```python
-# modal_config.py
-from macro_forecast_engine.config import BASE_DIR, FORECAST_HORIZON
+The repository's `modal_engine.py` declares the Modal app, GPU image, secret
+binding, and local entrypoint. Create a Modal Secret named `fred-secret` with
+`FRED_API_KEY` before running the forecast commands:
 
-horizon = FORECAST_HORIZON  # "monthly" or "yearly"
-
-stub = modal.Stub("macro-forecast")
-
-@stub.function(gpu="A100", image=modal.Image.debian_python().pip_install(
-    "numpy", "pandas", "pytorch", "neuralforecast", "finbert-emoji"
-))
-def run_forecast():
-    """Run TFT forecast on GPU."""
-    # ... forecast logic
-    pass
-
-if __name__ == "__main__":
-    modal.cli.run()
+```bash
+modal secret create fred-secret FRED_API_KEY=your_fred_api_key_here
 ```
 
 ### 4. Access Modal Results

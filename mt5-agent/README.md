@@ -30,12 +30,17 @@ two baseline strategies with realistic costs. **Never places orders.**
 ## Run order
 
 ```
+export DASHBOARD_PASSWORD='use-a-long-random-password'
 python env_check.py                 # 1. verify MT5 connection
 python data_pull.py                 # 2. pull history -> data/*.csv
 python run_backtest.py              # 3. both strategies on EURUSD H1
 python run_backtest.py --strategy smc --symbol XAUUSD --tf M15
 python run_backtest.py --sample     # no MT5 needed (bundled sample data)
 ```
+
+The Streamlit dashboard refuses access unless `DASHBOARD_PASSWORD` is set and
+the password is entered successfully. Keep the dashboard bound to localhost
+or a private network; it is not intended for public exposure.
 
 ## Realism settings (config.py)
 

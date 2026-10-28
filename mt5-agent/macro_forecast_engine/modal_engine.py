@@ -1,8 +1,8 @@
 """Primary Modal GPU execution engine for macro XAUUSD forecasting.
 
 Run:
-    modal run macro_forecast_engine/modal_engine.py --mode monthly
-    modal run macro_forecast_engine/modal_engine.py --mode yearly
+    python -m modal run macro_forecast_engine/modal_engine.py --mode monthly
+    python -m modal run macro_forecast_engine/modal_engine.py --mode yearly
 
 All ingestion, FinBERT scoring, TFT training/inference, and Monte Carlo
 analysis execute inside the A10G Modal function.
@@ -20,6 +20,9 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
+
+load_dotenv()
 
 try:
     import modal
@@ -35,16 +38,17 @@ if modal is not None:
     image = (
         modal.Image.debian_slim(python_version="3.11")
         .pip_install(
-            "neuralforecast",
-            "pyfredapi",
-            "transformers",
-            "torch",
-            "yfinance",
-            "vectorbt",
-            "requests",
+            "neuralforecast==1.7.5",
+            "pyfredapi==0.10.2",
+            "transformers==4.47.1",
+            "torch==2.5.1",
+            "yfinance==0.2.51",
+            "vectorbt==0.26.2",
+            "requests==2.32.3",
         )
     )
     app = modal.App(APP_NAME)
+    fred_secret = modal.Secret.from_name("fred-secret")
 else:  # pragma: no cover
     image = None
     app = None
@@ -342,12 +346,12 @@ def _event_metadata(events: list[dict[str, str]]) -> dict[str, Any]:
 def _run_worker(
     mode: str,
     market_period: str,
-    fred_api_key: str,
 ) -> dict[str, Any]:
     if mode not in {"monthly", "yearly"}:
         raise ValueError("mode must be 'monthly' or 'yearly'")
     now = pd.Timestamp.now(tz="UTC")
     horizon = 252 if mode == "yearly" else _business_days_to_month_end(now)
+    fred_api_key = os.getenv("FRED_API_KEY", "").strip()
     features, ingestion, events = _fetch_features(market_period, fred_api_key, now)
     forecast = _fit_tft(features, horizon)
     monte_carlo = _monte_carlo(
@@ -421,14 +425,79 @@ def _print_summary(payload: dict[str, Any], output: Path) -> None:
 
 if modal is not None:
 
-    @app.function(image=image, gpu="A10G", timeout=2400, retries=1)
+    @app.function(
+        image=image,
+        gpu="A10G",
+        secrets=[fred_secret],
+        timeout=2400,
+        retries=1,
+    )
     def forecast_worker(
         mode: str = "monthly",
         market_period: str = "10y",
-        fred_api_key: str = "",
     ) -> dict[str, Any]:
         """Strict cloud-only pipeline: ingestion, TFT, and inference on A10G."""
-        return _run_worker(mode, market_period, fred_api_key)
+        return _run_worker(mode, market_period)
+
+
+def forecast_payload(
+    features: pd.DataFrame,
+    horizon: int,
+    simulations: int = 5000,
+) -> dict[str, Any]:
+    """Run a deterministic local fallback without Modal or model training."""
+    required = {"gold_close", "gold_return"}
+    missing = required.difference(features.columns)
+    if missing:
+        raise ValueError(f"Missing required feature columns: {sorted(missing)}")
+    if horizon < 1:
+        raise ValueError("horizon must be at least 1")
+    clean = features.sort_index()
+    last_price = float(clean["gold_close"].iloc[-1])
+    returns = pd.to_numeric(clean["gold_return"], errors="coerce").dropna()
+    drift = float(returns.tail(60).mean()) if not returns.empty else 0.0
+    dates = pd.bdate_range(
+        clean.index[-1].normalize() + pd.offsets.BDay(1),
+        periods=horizon,
+    )
+    forecast = pd.Series(
+        last_price * np.exp(np.cumsum(np.full(horizon, drift))),
+        index=dates,
+        name="forecast",
+    )
+    monte_carlo = _monte_carlo(last_price, forecast, returns, simulations)
+    month_end = {
+        "month_end_target": monte_carlo["target_price"],
+        "target_low": monte_carlo["target_low"],
+        "target_high": monte_carlo["target_high"],
+        "directional_bias": monte_carlo["directional_bias"],
+        "confidence_score": monte_carlo["confidence_score"],
+    }
+    return {
+        "execution_environment": "Local fallback",
+        "model": "Drift baseline",
+        "mode": "yearly" if horizon >= 252 else "monthly",
+        "forecast": [
+            {"date": index.isoformat(), "price": round(float(value), 4)}
+            for index, value in forecast.items()
+        ],
+        "month_end": month_end,
+        "monte_carlo": monte_carlo,
+    }
+
+
+if modal is not None:
+
+    @app.function(image=image, secrets=[fred_secret], timeout=2400, retries=1)
+    def train_and_forecast_worker(
+        features_json: str,
+        horizon: int,
+        simulations: int = 5000,
+    ) -> dict[str, Any]:
+        """Run the local-compatible forecast contract inside Modal."""
+        features = pd.read_json(io.StringIO(features_json), orient="split")
+        features.index = pd.to_datetime(features.index)
+        return forecast_payload(features, horizon=horizon, simulations=simulations)
 
     @app.local_entrypoint()
     def main(
@@ -439,11 +508,9 @@ if modal is not None:
         if mode not in {"monthly", "yearly"}:
             raise ValueError("--mode must be monthly or yearly")
         destination = Path(output)
-        fred_api_key = os.getenv("FRED_API_KEY", "").strip()
         payload = forecast_worker.remote(
             mode=mode,
             market_period=market_period,
-            fred_api_key=fred_api_key,
         )
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(
@@ -452,4 +519,6 @@ if modal is not None:
         )
         _print_summary(payload, destination)
 else:  # pragma: no cover
-    raise RuntimeError("Modal is required. Run with: modal run modal_engine.py --mode monthly")
+    forecast_worker = None
+    train_and_forecast_worker = None
+    main = None
