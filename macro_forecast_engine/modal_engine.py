@@ -40,7 +40,6 @@ if modal is not None:
             "transformers",
             "torch",
             "yfinance",
-            "vectorbt",
             "requests",
         )
     )
@@ -421,14 +420,21 @@ def _print_summary(payload: dict[str, Any], output: Path) -> None:
 
 if modal is not None:
 
-    @app.function(image=image, gpu="A10G", timeout=2400, retries=1)
+    @app.function(
+        image=image,
+        gpu="A10G",
+        timeout=2400,
+        retries=1,
+        secrets=[modal.Secret.from_name("fred-secret")],
+    )
     def forecast_worker(
         mode: str = "monthly",
         market_period: str = "10y",
         fred_api_key: str = "",
     ) -> dict[str, Any]:
         """Strict cloud-only pipeline: ingestion, TFT, and inference on A10G."""
-        return _run_worker(mode, market_period, fred_api_key)
+        api_key = fred_api_key.strip() or os.getenv("FRED_API_KEY", "").strip()
+        return _run_worker(mode, market_period, api_key)
 
     @app.local_entrypoint()
     def main(

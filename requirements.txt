@@ -1,0 +1,9 @@
+modal==0.73.0
+neuralforecast==1.7.5
+pyfredapi==0.4.3
+transformers==4.46.3
+torch==2.5.1
+pandas==2.2.3
+numpy==2.1.3
+yfinance==0.2.48
+requests==2.32.3

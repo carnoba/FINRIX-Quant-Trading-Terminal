@@ -1,8 +1,0 @@
-neuralforecast
-pyfredapi
-transformers
-torch
-yfinance
-vectorbt
-modal
-requests
