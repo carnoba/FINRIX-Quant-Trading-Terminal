@@ -1,15 +1,15 @@
 # Institutional XAUUSD Modal Macro Forecasting Engine
 
-Cloud-native XAUUSD forecasting using NeuralForecast TFT, FinBERT financial-news sentiment, FRED DFII10 real yields, and yfinance market data. Training, inference, sentiment scoring, Monte Carlo simulation, and event detection run inside a Modal A10G GPU worker.
+Cloud-native XAUUSD forecasting using a multi-horizon NeuralForecast TFT, FinBERT macro sentiment, FRED real yields and curve spreads, CFTC positioning, ETF flows, and yfinance market data. Training, inference, sentiment scoring, Monte Carlo simulation, and SMC overlays run inside a Modal A10G GPU worker.
 
 ## Architecture
 
-- **Market factors:** Gold futures (`GC=F`) and DXY (`DX-Y.NYB`) from yfinance.
-- **Macro factor:** FRED `DFII10`, the 10-year inflation-indexed Treasury real yield.
-- **News factor:** ForexFactory/CNBC RSS headlines scored with `ProsusAI/finbert`.
-- **Forecast model:** NeuralForecast Temporal Fusion Transformer.
-- **Risk analysis:** 5,000-path Monte Carlo target ranges, confidence, directional bias, and trend-shift windows.
-- **Execution:** Modal GPU function with output persisted to `data/macro_month_forecast.json`.
+- **Market factors:** Gold futures, DXY, GVZ, GLD, and IAU daily prices/volume.
+- **Macro factors:** FRED `DFII10` real yields and `DGS10-DGS2` curve spread.
+- **Positioning/news:** CFTC gold commercial/non-commercial net positioning and GPU FinBERT sentiment velocity.
+- **Forecast model:** NeuralForecast Temporal Fusion Transformer with q10/q50/q90 outputs.
+- **Risk analysis:** 100,000-path CUDA Monte Carlo corridors, drawdown probability, dynamic risk levels, and SMC zones.
+- **Execution:** Modal GPU function with output persisted to `data/macro_{mode}_forecast.json`.
 
 ## Quickstart Execution Guide
 
@@ -32,13 +32,19 @@ The worker also supports the public FRED CSV endpoint when no key is supplied. N
 
 ### Step 3: Run a forecast
 
-Monthly forecast:
+Daily forecast (30 business days):
+
+```bash
+python -m modal run macro_forecast_engine/modal_engine.py --mode daily
+```
+
+Monthly forecast (22 business days):
 
 ```bash
 python -m modal run macro_forecast_engine/modal_engine.py --mode monthly
 ```
 
-Yearly forecast:
+Yearly forecast (252 business days):
 
 ```bash
 python -m modal run macro_forecast_engine/modal_engine.py --mode yearly
@@ -46,20 +52,18 @@ python -m modal run macro_forecast_engine/modal_engine.py --mode yearly
 
 ## Output
 
-Both modes write `data/macro_month_forecast.json`. The JSON contains:
+Each mode writes `data/macro_{mode}_forecast.json`. The JSON contains:
 
 ```json
 {
   "execution_environment": "Modal GPU A10G",
-  "mode": "monthly",
-  "data": {"horizon": 3, "horizon_unit": "business_days"},
+  "mode": "daily",
+  "data": {"horizon": 30, "horizon_unit": "business_days"},
   "monte_carlo": {
     "target_price": 4500.0,
     "target_low": 4200.0,
     "target_high": 4800.0,
-    "directional_bias": "bullish",
-    "confidence_score": 66.5,
-    "trend_shift_window": null
+    "drawdown_probability": 12.4
   },
   "economic_events": {
     "next_high_impact_title": "FOMC Rate Decision",

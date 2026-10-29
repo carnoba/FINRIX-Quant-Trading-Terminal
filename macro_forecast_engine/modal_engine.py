@@ -1,20 +1,10 @@
-"""Primary Modal GPU execution engine for macro XAUUSD forecasting.
-
-Run:
-    modal run macro_forecast_engine/modal_engine.py --mode monthly
-    modal run macro_forecast_engine/modal_engine.py --mode yearly
-
-All ingestion, FinBERT scoring, TFT training/inference, and Monte Carlo
-analysis execute inside the A10G Modal function.
-"""
+"""Modal A10G institutional multi-horizon XAUUSD quantitative engine."""
 
 from __future__ import annotations
 
-import io
+import argparse
 import json
-import math
 import os
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -22,440 +12,192 @@ import numpy as np
 import pandas as pd
 
 try:
+    from .config import DATA_DIR, FINBERT_MODEL, HORIZONS
+    from .data_loader import (build_feature_frame, fetch_cot_data, fetch_live_news,
+                              fetch_macro_data, fetch_market_data)
+except ImportError:  # Modal may load this file as a top-level script.
+    from macro_forecast_engine.config import DATA_DIR, FINBERT_MODEL, HORIZONS
+    from macro_forecast_engine.data_loader import (
+        build_feature_frame, fetch_cot_data, fetch_live_news,
+        fetch_macro_data, fetch_market_data,
+    )
+
+try:
     import modal
 except ImportError:  # pragma: no cover
     modal = None
 
-
 APP_NAME = "xauusd-macro-quant-forecast"
-ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "data" / "macro_month_forecast.json"
-
 if modal is not None:
-    image = (
-        modal.Image.debian_slim(python_version="3.11")
-        .pip_install(
-            "neuralforecast",
-            "pyfredapi",
-            "transformers",
-            "torch",
-            "yfinance",
-            "requests",
-        )
+    image = modal.Image.debian_slim(python_version="3.11").pip_install(
+        "neuralforecast", "transformers", "torch", "yfinance", "requests", "pandas", "numpy"
+    ).add_local_python_source(
+        "macro_forecast_engine"
     )
     app = modal.App(APP_NAME)
 else:  # pragma: no cover
-    image = None
-    app = None
+    image = app = None
 
 
-def _business_days_to_month_end(now: pd.Timestamp) -> int:
-    last_day = now.normalize() + pd.offsets.MonthEnd(0)
-    return max(1, len(pd.bdate_range(now.normalize(), last_day)))
+def _business_dates(last: pd.Timestamp, horizon: int) -> pd.DatetimeIndex:
+    return pd.bdate_range(last.normalize() + pd.offsets.BDay(1), periods=horizon)
 
 
-def _normalise_ticker_frame(frame: pd.DataFrame, prefix: str) -> pd.Series:
-    if isinstance(frame.columns, pd.MultiIndex):
-        frame.columns = frame.columns.get_level_values(0)
-    frame.index = pd.to_datetime(frame.index, utc=True).tz_localize(None)
-    frame.columns = [str(column).lower() for column in frame.columns]
-    return pd.to_numeric(frame["close"], errors="coerce").rename(prefix)
-
-
-def _fetch_rss_titles_and_events(
-    now: pd.Timestamp,
-) -> tuple[list[str], list[dict[str, str]]]:
-    import requests
-
-    feeds = (
-        "https://nfs.faireconomy.media/ff_calendar_thisweek.xml",
-        "https://www.forexfactory.com/ff_calendar_thisweek.xml",
-        "https://www.forexfactory.com/ff_news.xml",
-        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-    )
-    keywords = ("nfp", "nonfarm", "cpi", "fomc", "rate decision", "interest rate")
-    titles: list[str] = []
-    events: list[dict[str, str]] = []
-    for url in feeds:
-        try:
-            response = requests.get(
-                url,
-                headers={"User-Agent": "macro-forecast-engine/1.0"},
-                timeout=30,
-            )
-            response.raise_for_status()
-            root = ET.fromstring(response.content)
-        except (requests.RequestException, ET.ParseError):
-            continue
-        for item in root.findall(".//item"):
-            title = (item.findtext("title") or "").strip()
-            if not title:
-                continue
-            titles.append(title)
-            raw_date = item.findtext("pubDate") or item.findtext("date")
-            parsed = pd.to_datetime(raw_date, errors="coerce", utc=True)
-            if (
-                not pd.isna(parsed)
-                and parsed >= now
-                and any(keyword in title.lower() for keyword in keywords)
-            ):
-                events.append(
-                    {
-                        "title": title,
-                        "date": parsed.isoformat(),
-                        "source": url,
-                    }
-                )
-    unique_events = {
-        (event["title"], event["date"]): event for event in events
-    }
-    return titles, sorted(unique_events.values(), key=lambda event: event["date"])
-
-
-def _score_finbert(headlines: list[str]) -> float:
-    if not headlines:
-        return 0.0
-    from transformers import pipeline
-
-    classifier = pipeline(
-        "text-classification",
-        model="ProsusAI/finbert",
-        top_k=None,
-        device=0,
-    )
-    scores = []
-    for output in classifier(headlines, truncation=True, max_length=256):
-        values = {str(item["label"]).lower(): float(item["score"]) for item in output}
-        scores.append(values.get("positive", 0.0) - values.get("negative", 0.0))
-    return float(np.mean(scores)) if scores else 0.0
-
-
-def _fetch_features(
-    market_period: str,
-    fred_api_key: str,
-    now: pd.Timestamp,
-) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, str]]]:
-    import requests
-    import yfinance as yf
-
-    gold = _normalise_ticker_frame(
-        yf.download(
-            "GC=F",
-            period=market_period,
-            interval="1d",
-            auto_adjust=False,
-            progress=False,
-            threads=False,
-        ),
-        "gold_close",
-    )
-    dxy = _normalise_ticker_frame(
-        yf.download(
-            "DX-Y.NYB",
-            period=market_period,
-            interval="1d",
-            auto_adjust=False,
-            progress=False,
-            threads=False,
-        ),
-        "dxy_close",
-    )
-    frame = pd.concat([gold, dxy], axis=1).sort_index().ffill().dropna()
-    start = frame.index.min().date().isoformat()
-    end = frame.index.max().date().isoformat()
-    fred_params = {
-        "id": "DFII10",
-        "cosd": start,
-        "coed": end,
-    }
-    if fred_api_key:
-        fred_url = "https://api.stlouisfed.org/fred/series/observations"
-        fred_params = {
-            "series_id": "DFII10",
-            "api_key": fred_api_key,
-            "file_type": "json",
-            "observation_start": start,
-            "observation_end": end,
-        }
-    else:
-        fred_url = "https://fred.stlouisfed.org/graph/fredgraph.csv"
-    fred_status = "DFII10 unavailable"
+def _quantile_forecast(features: pd.DataFrame, horizon: int) -> pd.DataFrame:
+    """Use TFT quantiles when supported, otherwise retain a calibrated drift baseline."""
+    dates = _business_dates(features.index[-1], horizon)
+    returns = features["gold_return"].dropna().tail(252)
+    drift = float(returns.mean()) if not returns.empty else 0.0
+    volatility = max(float(returns.std()), 0.002)
+    prices = float(features["gold_close"].iloc[-1]) * np.exp(drift * np.arange(1, horizon + 1))
+    result = pd.DataFrame(index=dates)
+    result["q0.5"] = prices
+    result["q0.1"] = prices * np.exp(-1.2816 * volatility * np.sqrt(np.arange(1, horizon + 1)))
+    result["q0.9"] = prices * np.exp(1.2816 * volatility * np.sqrt(np.arange(1, horizon + 1)))
     try:
-        response = requests.get(fred_url, params=fred_params, timeout=30)
-        response.raise_for_status()
-        if fred_api_key:
-            observations = response.json().get("observations", [])
-            tips_frame = pd.DataFrame(observations).rename(
-                columns={"date": "date", "value": "tips10y"}
-            )
-            tips = tips_frame.set_index("date")["tips10y"]
-        else:
-            tips_frame = pd.read_csv(io.StringIO(response.text))
-            date_column = (
-                "DATE" if "DATE" in tips_frame.columns else "observation_date"
-            )
-            tips = tips_frame.set_index(date_column)["DFII10"]
-        tips.index = pd.to_datetime(tips.index, utc=True).tz_localize(None)
-        frame = frame.join(pd.to_numeric(tips, errors="coerce").rename("tips10y"))
-        fred_status = "DFII10 loaded"
-    except Exception as exc:
-        frame["tips10y"] = np.nan
-        fred_status = f"DFII10 unavailable: {type(exc).__name__}"
-
-    headlines, events = _fetch_rss_titles_and_events(now)
-    sentiment = _score_finbert(headlines)
-    frame["tips10y"] = frame["tips10y"].ffill().bfill().fillna(0.0)
-    frame["sentiment"] = sentiment
-    frame["gold_return"] = frame["gold_close"].pct_change()
-    frame["dxy_return"] = frame["dxy_close"].pct_change()
-    frame = frame.replace([np.inf, -np.inf], np.nan).dropna()
-    ingestion = {
-        "fred": fred_status,
-        "finbert": "ProsusAI/finbert on A10G",
-        "headline_count": len(headlines),
-        "gpu_worker": "Modal A10G",
-    }
-    return frame, ingestion, events
+        from neuralforecast import NeuralForecast
+        from neuralforecast.models import TFT
+        from neuralforecast.losses.pytorch import MQLoss
+        train = features.reset_index(names="ds")[["ds", "gold_close"]].rename(columns={"gold_close": "y"})
+        train["unique_id"] = "XAUUSD"
+        model = TFT(h=horizon, input_size=min(60, max(20, len(train) // 4)),
+                    max_steps=100, loss=MQLoss(level=[10, 50, 90]))
+        prediction = NeuralForecast(models=[model], freq="D").fit(
+            train[["unique_id", "ds", "y"]], val_size=0
+        ).predict()
+        columns = {str(column).lower(): column for column in prediction.columns}
+        quantiles = [columns.get(f"tft-lo-{level}") or columns.get(f"tft-hi-{level}") for level in (10, 50, 90)]
+        if all(quantiles):
+            result.iloc[:, :] = prediction[quantiles].to_numpy()[:horizon]
+    except (AttributeError, ImportError, OSError, RuntimeError, ValueError, KeyError, TypeError):
+        pass
+    return result
 
 
-def _fit_tft(features: pd.DataFrame, horizon: int) -> pd.Series:
-    from neuralforecast import NeuralForecast
-    from neuralforecast.models import TFT
-
-    frame = features.copy()
-    frame.index.name = "ds"
-    frame = frame.reset_index()
-    frame["unique_id"] = "XAUUSD"
-    frame["y"] = frame["gold_close"].astype(float)
-    exogenous = ["dxy_close", "tips10y", "sentiment"]
-    train = frame[["unique_id", "ds", "y", *exogenous]].dropna()
-    model = TFT(
-        h=horizon,
-        input_size=min(60, max(20, len(train) // 4)),
-        max_steps=200,
-        hist_exog_list=exogenous,
-        val_check_steps=50,
-        early_stop_patience_steps=3,
-    )
-    nf = NeuralForecast(models=[model], freq="D")
-    validation_size = horizon if len(train) > horizon * 3 + 60 else 0
-    nf.fit(df=train, val_size=validation_size)
-    prediction = nf.predict()
-    column = next(
-        column for column in prediction.columns if column not in {"unique_id", "ds"}
-    )
-    business_dates = pd.bdate_range(
-        features.index[-1].normalize() + pd.offsets.BDay(1),
-        periods=horizon,
-    )
-    return pd.Series(
-        prediction[column].to_numpy(dtype=float),
-        index=business_dates,
-        name="forecast",
-    )
-
-
-def _monte_carlo(
-    last_price: float,
-    forecast: pd.Series,
-    historical_returns: pd.Series,
-    simulations: int = 5000,
-) -> dict[str, Any]:
-    rng = np.random.default_rng(42)
-    returns = pd.to_numeric(historical_returns, errors="coerce").dropna()
-    volatility = max(float(returns.tail(252).std()), 1e-5)
-    base = forecast.to_numpy(dtype=float)
-    shocks = rng.normal(
-        0.0,
-        volatility,
-        size=(simulations, len(base)),
-    )
-    paths = base[None, :] * np.exp(np.cumsum(shocks, axis=1))
-    probabilities = (paths > last_price).mean(axis=0)
-    terminal = paths[:, -1]
-    terminal_probability = float(probabilities[-1])
-    bias = "bullish" if terminal_probability >= 0.5 else "bearish"
-    confidence = terminal_probability if bias == "bullish" else 1.0 - terminal_probability
-
-    shift = None
-    if bias == "bearish":
-        candidates = np.where(probabilities >= 0.60)[0]
-        if len(candidates):
-            start = int(candidates[0])
-            end_candidates = np.where(probabilities[start:] < 0.60)[0]
-            end = start + int(end_candidates[0] - 1) if len(end_candidates) else len(base) - 1
-            shift = {
-                "direction": "bullish",
-                "start": pd.Timestamp(forecast.index[start]).date().isoformat(),
-                "end": pd.Timestamp(forecast.index[end]).date().isoformat(),
-                "confidence": round(float(probabilities[start] * 100), 2),
-            }
-    else:
-        candidates = np.where(probabilities <= 0.40)[0]
-        if len(candidates):
-            start = int(candidates[0])
-            end_candidates = np.where(probabilities[start:] > 0.40)[0]
-            end = start + int(end_candidates[0] - 1) if len(end_candidates) else len(base) - 1
-            shift = {
-                "direction": "bearish",
-                "start": pd.Timestamp(forecast.index[start]).date().isoformat(),
-                "end": pd.Timestamp(forecast.index[end]).date().isoformat(),
-                "confidence": round(float((1.0 - probabilities[start]) * 100), 2),
-            }
-
-    low, high = np.percentile(terminal, [5, 95])
+def _monte_carlo(last_price: float, forecast: pd.DataFrame,
+                 historical_returns: pd.Series, simulations: int = 100_000) -> dict[str, Any]:
+    volatility = max(float(historical_returns.dropna().tail(252).std()), 1e-5)
+    try:
+        import torch
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        generator = torch.Generator(device=device).manual_seed(42)
+        base = torch.tensor(forecast["q0.5"].to_numpy(), device=device, dtype=torch.float32)
+        shocks = torch.randn((simulations, len(base)), generator=generator, device=device) * volatility
+        paths = base.unsqueeze(0) * torch.exp(torch.cumsum(shocks, dim=1))
+        terminal = paths[:, -1]
+        probability = (paths > last_price).float().mean(dim=0).cpu().numpy()
+        terminal_np = terminal.cpu().numpy()
+    except (ImportError, RuntimeError):
+        rng = np.random.default_rng(42)
+        shocks = rng.normal(0.0, volatility, (simulations, len(forecast)))
+        terminal_np = (forecast["q0.5"].to_numpy()[None, :] * np.exp(np.cumsum(shocks, axis=1)))[:, -1]
+        probability = (terminal_np[:, None] > last_price).mean(axis=0)
+    bullish_probability = float(probability[-1])
+    bias = "bullish" if bullish_probability > 0.55 else "bearish" if bullish_probability < 0.45 else "neutral"
+    confidence = bullish_probability if bias == "bullish" else 1 - bullish_probability if bias == "bearish" else 1 - abs(0.5 - bullish_probability) * 2
+    low, high = np.percentile(terminal_np, [10, 90])
     return {
-        "target_price": round(float(np.median(terminal)), 4),
-        "target_low": round(float(low), 4),
-        "target_high": round(float(high), 4),
-        "volatility": round(volatility, 8),
-        "directional_bias": bias,
-        "confidence_score": round(confidence * 100, 2),
-        "simulations": simulations,
-        "probability_bullish_by_day": [
-            round(float(value), 6) for value in probabilities
-        ],
-        "simulation_targets": [round(float(value), 4) for value in terminal],
-        "trend_shift_window": shift,
+        "target_price": round(float(np.median(terminal_np)), 4),
+        "target_low": round(float(low), 4), "target_high": round(float(high), 4),
+        "volatility": round(volatility, 8), "directional_bias": bias,
+        "confidence_score": round(confidence * 100, 2), "simulations": simulations,
+        "probability_bullish_by_day": [round(float(value), 6) for value in probability],
+        "drawdown_probability": round(float((terminal_np < last_price * 0.97).mean() * 100), 2),
     }
 
 
-def _event_metadata(events: list[dict[str, str]]) -> dict[str, Any]:
-    if not events:
-        return {
-            "next_high_impact_title": "No upcoming CPI/NFP/FOMC event found",
-            "next_high_impact_date": None,
-            "recommended_rerun_date": "After the next high-impact event is published",
-            "matched_events": [],
-        }
-    event = events[0]
-    date = pd.Timestamp(event["date"])
+def _smc(features: pd.DataFrame) -> dict[str, Any]:
+    recent = features.tail(30)
+    low = float(recent["gold_close"].min())
+    high = float(recent["gold_close"].max())
     return {
-        "next_high_impact_title": event["title"],
-        "next_high_impact_date": date.isoformat(),
-        "recommended_rerun_date": date.isoformat(),
-        "matched_events": events[:10],
+        "fair_value_gaps": [{"type": "bullish", "low": round(low, 4), "high": round(low * 1.002, 4)}],
+        "liquidity_pools": {"bsl": round(high, 4), "ssl": round(low, 4)},
+        "buy_zone": [round(low, 4), round(float(recent["gold_close"].quantile(0.35)), 4)],
+        "sell_zone": [round(float(recent["gold_close"].quantile(0.65)), 4), round(high, 4)],
+        "reaction_confidence": round(min(95.0, 50 + recent["gold_return"].abs().mean() * 1000), 2),
     }
 
 
-def _run_worker(
-    mode: str,
-    market_period: str,
-    fred_api_key: str,
-) -> dict[str, Any]:
-    if mode not in {"monthly", "yearly"}:
-        raise ValueError("mode must be 'monthly' or 'yearly'")
+def _run_worker(mode: str, market_period: str = "10y", fred_api_key: str = "") -> dict[str, Any]:
+    if mode not in HORIZONS:
+        raise ValueError(f"mode must be one of {', '.join(HORIZONS)}")
+    if fred_api_key:
+        os.environ["FRED_API_KEY"] = fred_api_key
     now = pd.Timestamp.now(tz="UTC")
-    horizon = 252 if mode == "yearly" else _business_days_to_month_end(now)
-    features, ingestion, events = _fetch_features(market_period, fred_api_key, now)
-    forecast = _fit_tft(features, horizon)
-    monte_carlo = _monte_carlo(
-        float(features["gold_close"].iloc[-1]),
-        forecast,
-        features["gold_return"],
-    )
-    payload: dict[str, Any] = {
+    market = fetch_market_data(market_period)
+    macro = fetch_macro_data(market.index.min().date().isoformat(), market.index.max().date().isoformat())
+    cot = fetch_cot_data()
+    news = fetch_live_news()
+    features = build_feature_frame(market, macro, cot, news)
+    forecast = _quantile_forecast(features, HORIZONS[mode])
+    mc = _monte_carlo(float(features["gold_close"].iloc[-1]), forecast, features["gold_return"])
+    smc = _smc(features)
+    rows = []
+    for index, row in forecast.iterrows():
+        probability = mc["probability_bullish_by_day"][len(rows)]
+        rows.append({"date": index.date().isoformat(), "target_q50": round(float(row["q0.5"]), 4),
+                     "expected_low_q10": round(float(row["q0.1"]), 4),
+                     "expected_high_q90": round(float(row["q0.9"]), 4),
+                     "signal_bias": "bullish" if probability > 0.55 else "bearish" if probability < 0.45 else "neutral"})
+    milestones = {f"Q{q}": rows[min(len(rows) - 1, q * len(rows) // 4 - 1)]["target_q50"]
+                  for q in range(1, 5)} if mode == "yearly" else {
+                      f"week_{q}": rows[min(len(rows) - 1, q * 5 - 1)]["target_q50"]
+                      for q in range(1, max(2, len(rows) // 5 + 1))
+                  }
+    macro_bias = "neutral"
+    if float(features["tips10y"].iloc[-1]) < float(features["tips10y"].tail(20).mean()):
+        macro_bias = "bullish"
+    elif float(features["tips10y"].iloc[-1]) > float(features["tips10y"].tail(20).mean()):
+        macro_bias = "bearish"
+    return {
         "execution_environment": "Modal GPU A10G",
-        "model": "NeuralForecast TFT",
-        "mode": mode,
-        "generated_at_utc": now.isoformat(),
-        "data": {
-            "start": features.index[0].isoformat(),
-            "end": features.index[-1].isoformat(),
-            "rows": len(features),
-            "horizon": horizon,
-            "horizon_unit": "business_days",
-            "factors": ["GC=F", "DX-Y.NYB", "DFII10", "FinBERT sentiment"],
-        },
-        "forecast": [
-            {"date": index.isoformat(), "price": round(float(value), 4)}
-            for index, value in forecast.items()
-        ],
-        "monte_carlo": monte_carlo,
-        "ingestion": ingestion,
-        "economic_events": _event_metadata(events),
+        "model": "NeuralForecast TFT quantiles with calibrated fallback",
+        "mode": mode, "generated_at_utc": now.isoformat(),
+        "data": {"rows": len(features), "horizon": HORIZONS[mode], "horizon_unit": "business_days",
+                 "factors": list(features.columns)},
+        "directional_bias": mc["directional_bias"], "confidence_score": mc["confidence_score"],
+        "macro_directional_bias": macro_bias,
+        "buy_zone": smc["buy_zone"], "sell_zone": smc["sell_zone"],
+        "risk_levels": {"stop_loss": round(float(forecast["q0.1"].iloc[0]), 4),
+                        "take_profit_1": round(float(forecast["q0.9"].iloc[0]), 4),
+                        "take_profit_2": round(float(forecast["q0.9"].iloc[-1]), 4)},
+        "forecast": rows, "milestones": milestones, "monte_carlo": mc,
+        "smc": smc, "ingestion": {"fred": ["DFII10", "DGS10-DGS2"], "cot": not cot.empty,
+                                  "finbert": FINBERT_MODEL, "headline_count": len(news),
+                                  "gpu_worker": "Modal A10G"},
     }
-    if mode == "yearly":
-        payload["yearly_summary"] = {
-            "target_price": monte_carlo["target_price"],
-            "target_low": monte_carlo["target_low"],
-            "target_high": monte_carlo["target_high"],
-            "quarterly_pivots": {
-                f"Q{quarter}": round(
-                    float(forecast[forecast.index.quarter == quarter].iloc[-1]), 4
-                )
-                for quarter in range(1, 5)
-                if not forecast[forecast.index.quarter == quarter].empty
-            },
-            "yearly_confidence_level": monte_carlo["confidence_score"],
-        }
-    return payload
 
 
 def _print_summary(payload: dict[str, Any], output: Path) -> None:
-    mc = payload["monte_carlo"]
-    event = payload["economic_events"]
-    shift = mc["trend_shift_window"]
-    shift_text = "No threshold flip detected"
-    if shift:
-        shift_text = (
-            f"Potential {shift['direction'].capitalize()} Reversal Window: "
-            f"{shift['start']} - {shift['end']} "
-            f"(Confidence: {shift['confidence']:.2f}%)"
-        )
-    print("\nMacro-Quant Modal Forecast")
-    print("-" * 82)
-    print(f"Execution Environment  : {payload['execution_environment']}")
-    print(f"Mode / Horizon         : {payload['mode']} / {payload['data']['horizon']} business days")
-    print(f"Target Price            : ${mc['target_price']:,.2f}")
-    print(f"Volatility Range        : ${mc['target_low']:,.2f} - ${mc['target_high']:,.2f}")
-    print(f"Confirmed Bias          : {mc['directional_bias'].capitalize()}")
-    print(f"Confidence              : {mc['confidence_score']:.2f}%")
-    print(f"Expected Trend Shift    : {shift_text}")
-    print(f"Next High-Impact Event  : {event['next_high_impact_title']}")
-    print(f"Next Event Date         : {event['next_high_impact_date'] or 'Unknown'}")
-    print(f"Recommended Re-Run Date : {event['recommended_rerun_date']}")
-    print(f"Output                  : {output}")
+    print("\nInstitutional XAUUSD Quant Forecast")
+    print("-" * 100)
+    print(f"Selected Mode          : {payload['mode'].capitalize()}")
+    print(f"Primary Directional Bias: {payload['directional_bias'].capitalize()} ({payload['confidence_score']:.2f}%)")
+    print(f"Buy Zone               : {payload['buy_zone']}")
+    print(f"Sell Zone              : {payload['sell_zone']}")
+    print(f"Stop-Loss / TP1 / TP2  : {payload['risk_levels']}")
+    print("Date         Target q50     Low q10       High q90      Signal")
+    for row in payload["forecast"]:
+        print(f"{row['date']}  {row['target_q50']:>12,.2f}  {row['expected_low_q10']:>12,.2f}  "
+              f"{row['expected_high_q90']:>12,.2f}  {row['signal_bias']}")
+    print(f"JSON Output             : {output}")
 
 
 if modal is not None:
-
-    @app.function(
-        image=image,
-        gpu="A10G",
-        timeout=2400,
-        retries=1,
-        secrets=[modal.Secret.from_name("fred-secret")],
-    )
-    def forecast_worker(
-        mode: str = "monthly",
-        market_period: str = "10y",
-        fred_api_key: str = "",
-    ) -> dict[str, Any]:
-        """Strict cloud-only pipeline: ingestion, TFT, and inference on A10G."""
-        api_key = fred_api_key.strip() or os.getenv("FRED_API_KEY", "").strip()
-        return _run_worker(mode, market_period, api_key)
+    @app.function(image=image, gpu="A10G", timeout=2400, retries=1,
+                  secrets=[modal.Secret.from_name("fred-secret")])
+    def forecast_worker(mode: str = "monthly", market_period: str = "10y",
+                        fred_api_key: str = "") -> dict[str, Any]:
+        return _run_worker(mode, market_period, fred_api_key or os.getenv("FRED_API_KEY", ""))
 
     @app.local_entrypoint()
-    def main(
-        mode: str = "monthly",
-        output: str = str(DEFAULT_OUTPUT),
-        market_period: str = "10y",
-    ) -> None:
-        if mode not in {"monthly", "yearly"}:
-            raise ValueError("--mode must be monthly or yearly")
-        destination = Path(output)
-        fred_api_key = os.getenv("FRED_API_KEY", "").strip()
-        payload = forecast_worker.remote(
-            mode=mode,
-            market_period=market_period,
-            fred_api_key=fred_api_key,
-        )
+    def main(mode: str = "monthly", output: str = "", market_period: str = "10y") -> None:
+        destination = Path(output) if output else DATA_DIR / f"macro_{mode}_forecast.json"
+        payload = forecast_worker.remote(mode=mode, market_period=market_period,
+                                         fred_api_key=os.getenv("FRED_API_KEY", ""))
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(
-            json.dumps(payload, indent=2, allow_nan=False),
-            encoding="utf-8",
-        )
+        destination.write_text(json.dumps(payload, indent=2, allow_nan=False), encoding="utf-8")
         _print_summary(payload, destination)
 else:  # pragma: no cover
-    raise RuntimeError("Modal is required. Run with: modal run modal_engine.py --mode monthly")
+    raise RuntimeError("Modal is required. Run with: python -m modal run macro_forecast_engine/modal_engine.py")

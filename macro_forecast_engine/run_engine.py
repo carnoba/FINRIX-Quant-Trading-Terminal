@@ -11,14 +11,14 @@ from .modal_engine import _print_summary, forecast_worker
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = PROJECT_ROOT / "data" / "macro_month_forecast.json"
+DEFAULT_OUTPUT = PROJECT_ROOT / "data" / "macro_monthly_forecast.json"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Submit the XAUUSD macro forecast to Modal A10G."
     )
-    parser.add_argument("--mode", choices=("monthly", "yearly"), default="monthly")
+    parser.add_argument("--mode", choices=("daily", "monthly", "yearly"), default="monthly")
     parser.add_argument("--market-period", default="10y")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
@@ -29,6 +29,8 @@ def main() -> None:
         market_period=args.market_period,
         fred_api_key=fred_api_key,
     )
+    if args.output == DEFAULT_OUTPUT:
+        args.output = PROJECT_ROOT / "data" / f"macro_{args.mode}_forecast.json"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(payload, indent=2, allow_nan=False),

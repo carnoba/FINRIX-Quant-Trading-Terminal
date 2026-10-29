@@ -1,12 +1,10 @@
-"""Market, macroeconomic, and financial-news ingestion."""
+"""Institutional cross-asset and macro data ingestion helpers."""
 
 from __future__ import annotations
 
-import json
 import os
 from io import StringIO
 import xml.etree.ElementTree as ET
-from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
 import numpy as np
@@ -18,32 +16,12 @@ try:
 except ImportError:  # pragma: no cover
     yf = None
 
-try:
-    import pyfredapi as pf
-except ImportError:  # pragma: no cover
-    pf = None
 
-try:
-    from transformers import pipeline
-except ImportError:  # pragma: no cover
-    pipeline = None
-
-
-ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_NEWS = ROOT / "data" / "news_events_today.json"
-
-
-def _download(ticker: str, period: str, interval: str) -> pd.DataFrame:
+def _download(ticker: str, period: str = "10y", interval: str = "1d") -> pd.DataFrame:
     if yf is None:
         raise RuntimeError("yfinance is required for market data ingestion")
-    frame = yf.download(
-        ticker,
-        period=period,
-        interval=interval,
-        auto_adjust=False,
-        progress=False,
-        threads=False,
-    )
+    frame = yf.download(ticker, period=period, interval=interval, auto_adjust=False,
+                        progress=False, threads=False)
     if isinstance(frame.columns, pd.MultiIndex):
         frame.columns = frame.columns.get_level_values(0)
     if frame.empty:
@@ -54,218 +32,143 @@ def _download(ticker: str, period: str, interval: str) -> pd.DataFrame:
 
 
 def fetch_market_data(period: str = "10y", interval: str = "1d") -> pd.DataFrame:
-    """Fetch GC=F, DXY, and align daily market factors."""
-    gold = _download("GC=F", period, interval).add_prefix("gold_")
-    dxy = _download("DX-Y.NYB", period, interval).add_prefix("dxy_")
-    frame = gold.join(dxy, how="outer").sort_index().ffill().dropna(
-        subset=["gold_close", "dxy_close"]
-    )
-    return frame
+    """Fetch gold, DXY, GVZ, ETF holdings/volume, and align daily factors."""
+    frames: list[pd.DataFrame] = []
+    for ticker, prefix in (("GC=F", "gold"), ("DX-Y.NYB", "dxy"),
+                           ("^GVZ", "gvz"), ("GLD", "gld"), ("IAU", "iau")):
+        try:
+            data = _download(ticker, period, interval)
+        except (RuntimeError, ValueError, requests.RequestException):
+            continue
+        columns = {"close": f"{prefix}_close", "volume": f"{prefix}_volume"}
+        available = {source: target for source, target in columns.items() if source in data.columns}
+        frames.append(data.rename(columns=available)[list(available.values())])
+    if not frames or "gold_close" not in frames[0]:
+        raise ValueError("Gold market data is unavailable")
+    frame = frames[0]
+    for other in frames[1:]:
+        frame = frame.join(other, how="outer")
+    return frame.sort_index().ffill().dropna(subset=["gold_close"])
 
 
-def fetch_tips_yield(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-) -> pd.Series:
-    """Fetch the 10-year inflation-indexed Treasury yield (FRED DFII10)."""
+def _fred_series(series_id: str, start_date: Optional[str], end_date: Optional[str]) -> pd.Series:
+    params = {"id": series_id, "cosd": start_date or "", "coed": end_date or ""}
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv"
     api_key = os.getenv("FRED_API_KEY", "").strip()
     if api_key:
-        if pf is None:
-            raise RuntimeError("pyfredapi is required when FRED_API_KEY is set")
-        kwargs = {"api_key": api_key}
-        if start_date:
-            kwargs["observation_start"] = start_date
-        if end_date:
-            kwargs["observation_end"] = end_date
-        result = pf.get_series(series_id="DFII10", **kwargs)
-        if isinstance(result, pd.Series):
-            series = result
-        elif isinstance(result, pd.DataFrame):
-            value_column = "value" if "value" in result.columns else result.columns[-1]
-            date_column = "date" if "date" in result.columns else result.columns[0]
-            series = result.set_index(date_column)[value_column]
-        else:
-            raise TypeError("Unexpected pyfredapi response for DFII10")
-        series.index = pd.to_datetime(series.index, utc=True).tz_localize(None)
-        return pd.to_numeric(series, errors="coerce").rename("tips10y").dropna()
-
-    params = {"id": "DFII10", "cosd": start_date or "", "coed": end_date or ""}
-    response = requests.get(
-        "https://fred.stlouisfed.org/graph/fredgraph.csv",
-        params=params,
-        timeout=30,
-    )
-    response.raise_for_status()
-    csv = pd.read_csv(StringIO(response.text))
-    date_column = "DATE" if "DATE" in csv.columns else "observation_date"
-    if date_column not in csv.columns or "DFII10" not in csv.columns:
-        raise ValueError("FRED public CSV did not contain a date and DFII10 columns")
-    series = csv.set_index(date_column)["DFII10"].replace(".", np.nan)
+        url = "https://api.stlouisfed.org/fred/series/observations"
+        params = {"series_id": series_id, "api_key": api_key, "file_type": "json",
+                  "observation_start": start_date or "", "observation_end": end_date or ""}
+        response = requests.get(url, params=params, timeout=30)
+        response.raise_for_status()
+        data = pd.DataFrame(response.json().get("observations", []))
+        series = data.set_index("date")["value"]
+    else:
+        response = requests.get(url, params=params, timeout=30)
+        response.raise_for_status()
+        data = pd.read_csv(StringIO(response.text))
+        date_column = "DATE" if "DATE" in data.columns else "observation_date"
+        series = data.set_index(date_column)[series_id].replace(".", np.nan)
     series.index = pd.to_datetime(series.index, utc=True).tz_localize(None)
-    return pd.to_numeric(series, errors="coerce").rename("tips10y").dropna()
+    return pd.to_numeric(series, errors="coerce").rename(series_id).dropna()
 
 
-def _headline_texts(headlines: Iterable[Any]) -> list[str]:
-    texts = []
-    for item in headlines:
-        if isinstance(item, str):
-            texts.append(item)
-        elif isinstance(item, Mapping):
-            text = item.get("title") or item.get("headline") or item.get("text")
-            if text:
-                texts.append(str(text))
-    return texts
+def fetch_macro_data(start_date: str, end_date: str) -> pd.DataFrame:
+    """Fetch TIPS real yields and the 10Y-2Y Treasury curve spread."""
+    result = pd.DataFrame(index=pd.date_range(start_date, end_date, freq="D"))
+    for series_id, name in (("DFII10", "tips10y"), ("DGS10", "ust10y"), ("DGS2", "ust2y")):
+        try:
+            result = result.join(_fred_series(series_id, start_date, end_date), how="left")
+        except (requests.RequestException, ValueError, KeyError):
+            result[name] = np.nan
+    if "DGS10" in result and "DGS2" in result:
+        result["curve_spread_10y2y"] = result["DGS10"] - result["DGS2"]
+    else:
+        result["curve_spread_10y2y"] = np.nan
+    return result.rename(columns={"DFII10": "tips10y"}).drop(columns=["DGS10", "DGS2"], errors="ignore")
 
 
-def score_headlines(
-    headlines: Iterable[Any],
-    model_name: str = "ProsusAI/finbert",
-) -> float:
-    """Return mean FinBERT positive-minus-negative sentiment."""
-    texts = _headline_texts(headlines)
-    if not texts:
-        return 0.0
-    if pipeline is None:
-        return 0.0
-    classifier = pipeline("text-classification", model=model_name, top_k=None)
-    scores = []
-    for output in classifier(texts, truncation=True, max_length=256):
-        labels = {str(item["label"]).lower(): float(item["score"]) for item in output}
-        scores.append(labels.get("positive", 0.0) - labels.get("negative", 0.0))
-    return float(np.mean(scores)) if scores else 0.0
-
-
-def load_news(path: Path | str = DEFAULT_NEWS) -> pd.DataFrame:
-    """Load local news JSON; callers can replace this with an API adapter."""
-    source = Path(path)
-    if not source.exists():
-        return pd.DataFrame(columns=["date", "headline", "sentiment"])
-    payload = json.loads(source.read_text(encoding="utf-8"))
-    events = payload.get("events", payload if isinstance(payload, list) else [])
-    rows = []
-    for event in events:
-        if not isinstance(event, Mapping):
-            continue
-        headline = event.get("title") or event.get("headline") or event.get("event")
-        date = event.get("date") or event.get("datetime") or payload.get("date")
-        if headline and date:
-            rows.append({"date": pd.to_datetime(date), "headline": str(headline)})
-    news = pd.DataFrame(rows)
-    if news.empty:
-        return pd.DataFrame(columns=["date", "headline", "sentiment"])
-    news["sentiment"] = score_headlines(news["headline"].tolist())
-    return news
+def fetch_cot_data() -> pd.DataFrame:
+    """Fetch current CFTC disaggregated gold positioning when available."""
+    url = "https://publicreporting.cftc.gov/resource/jun7-fc8e.json"
+    try:
+        response = requests.get(url, params={"$limit": 2000, "$q": "GOLD"}, timeout=30)
+        response.raise_for_status()
+        rows = response.json()
+        data = pd.DataFrame(rows)
+        date_col = next((c for c in ("report_date_as_yyyy_mm_dd", "report_date") if c in data), None)
+        if date_col is None:
+            return pd.DataFrame()
+        data.index = pd.to_datetime(data[date_col], errors="coerce")
+        numeric = {
+            "commercial_positions": "commercial_positions",
+            "noncommercial_positions": "noncommercial_positions",
+        }
+        result = pd.DataFrame(index=data.index)
+        for source, target in numeric.items():
+            candidates = [c for c in data.columns if source in c and "net" in c]
+            if candidates:
+                result[target] = pd.to_numeric(data[candidates[0]], errors="coerce")
+        return result.sort_index()
+    except (requests.RequestException, ValueError, KeyError):
+        return pd.DataFrame()
 
 
 def fetch_live_news() -> pd.DataFrame:
-    """Fetch ForexFactory RSS, falling back to CNBC RSS, then score headlines."""
-    feeds = (
-        "https://www.forexfactory.com/ff_news.xml",
-        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-    )
-    rows = []
-    for feed_url in feeds:
+    rows: list[dict[str, Any]] = []
+    for feed_url in ("https://www.forexfactory.com/ff_news.xml",
+                     "https://www.cnbc.com/id/100003114/device/rss/rss.html"):
         try:
-            response = requests.get(
-                feed_url,
-                headers={"User-Agent": "macro-forecast-engine/1.0"},
-                timeout=30,
-            )
-            response.raise_for_status()
-            root = ET.fromstring(response.content)
-            for item in root.findall(".//item"):
-                title = item.findtext("title")
-                timestamp = item.findtext("pubDate")
-                if title:
-                    rows.append(
-                        {
-                            "date": pd.to_datetime(timestamp, errors="coerce", utc=True),
-                            "headline": title.strip(),
-                        }
-                    )
-            if rows:
-                break
-        except (requests.RequestException, ET.ParseError):
-            continue
-    news = pd.DataFrame(rows)
-    if news.empty:
-        return pd.DataFrame(columns=["date", "headline", "sentiment"])
-    news = news.dropna(subset=["date"])
-    news["date"] = news["date"].dt.tz_localize(None)
-    news["sentiment"] = [
-        score_headlines([headline]) for headline in news["headline"]
-    ]
-    return news
-
-
-def fetch_economic_events(now: Optional[pd.Timestamp] = None) -> list[dict[str, Any]]:
-    """Fetch upcoming high-impact events from calendar/news RSS feeds."""
-    current = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
-    if current.tzinfo is None:
-        current = current.tz_localize("UTC")
-    feeds = (
-        "https://nfs.faireconomy.media/ff_calendar_thisweek.xml",
-        "https://www.forexfactory.com/ff_calendar_thisweek.xml",
-        "https://www.forexfactory.com/ff_news.xml",
-        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-    )
-    keywords = ("nfp", "nonfarm", "cpi", "fomc", "rate decision", "interest rate")
-    events: list[dict[str, Any]] = []
-    for feed_url in feeds:
-        try:
-            response = requests.get(
-                feed_url,
-                headers={"User-Agent": "macro-forecast-engine/1.0"},
-                timeout=30,
-            )
+            response = requests.get(feed_url, headers={"User-Agent": "macro-forecast-engine/1.0"}, timeout=30)
             response.raise_for_status()
             root = ET.fromstring(response.content)
         except (requests.RequestException, ET.ParseError):
             continue
         for item in root.findall(".//item"):
             title = (item.findtext("title") or "").strip()
-            if not title or not any(word in title.lower() for word in keywords):
-                continue
-            raw_date = item.findtext("pubDate") or item.findtext("date")
-            event_date = pd.to_datetime(raw_date, errors="coerce", utc=True)
-            if pd.isna(event_date):
-                continue
-            if event_date >= current:
-                events.append(
-                    {
-                        "title": title,
-                        "date": event_date.isoformat(),
-                        "source": feed_url,
-                    }
-                )
-    unique = { (event["title"], event["date"]): event for event in events }
-    return sorted(unique.values(), key=lambda event: event["date"])
+            date = pd.to_datetime(item.findtext("pubDate"), errors="coerce", utc=True)
+            if title and not pd.isna(date):
+                rows.append({"date": date.tz_localize(None), "headline": title})
+        if rows:
+            break
+    return pd.DataFrame(rows, columns=["date", "headline"])
 
 
-def build_feature_frame(
-    daily: pd.DataFrame,
-    tips: Optional[pd.Series] = None,
-    news: Optional[pd.DataFrame] = None,
-) -> pd.DataFrame:
-    """Create the daily multi-factor frame consumed by NeuralForecast."""
+def score_headlines(headlines: Iterable[Any], model_name: str = "ProsusAI/finbert") -> float:
+    texts = [str(item) for item in headlines if item]
+    if not texts:
+        return 0.0
+    try:
+        from transformers import pipeline
+        classifier = pipeline("text-classification", model=model_name, top_k=None, device=0)
+        values = []
+        for output in classifier(texts, truncation=True, max_length=256):
+            labels = {str(item["label"]).lower(): float(item["score"]) for item in output}
+            values.append(labels.get("positive", 0.0) - labels.get("negative", 0.0))
+        return float(np.mean(values)) if values else 0.0
+    except (ImportError, OSError, RuntimeError, ValueError):
+        return 0.0
+
+
+def build_feature_frame(daily: pd.DataFrame, macro: Optional[pd.DataFrame] = None,
+                        cot: Optional[pd.DataFrame] = None,
+                        news: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    """Align market, macro, positioning, ETF, volatility, and NLP velocity features."""
     frame = daily.copy().sort_index()
-    if tips is not None:
-        frame = frame.join(tips.resample("1D").last(), how="left")
-    else:
-        frame["tips10y"] = np.nan
+    if macro is not None:
+        frame = frame.join(macro.reindex(frame.index, method="ffill"), how="left")
+    if cot is not None and not cot.empty:
+        frame = frame.join(cot.reindex(frame.index, method="ffill"), how="left")
+    sentiment = 0.0
     if news is not None and not news.empty:
-        news_daily = news.set_index("date")["sentiment"].resample("1D").mean()
-        frame = frame.join(news_daily.rename("sentiment"), how="left")
-    else:
-        frame["sentiment"] = 0.0
-    frame["tips10y"] = frame["tips10y"].ffill().bfill()
-    frame["sentiment"] = frame["sentiment"].fillna(0.0)
+        sentiment = score_headlines(news["headline"].tolist())
+    frame["sentiment"] = sentiment
+    frame["sentiment_velocity"] = frame["sentiment"].diff().fillna(0.0)
+    for column in ("tips10y", "curve_spread_10y2y", "commercial_positions",
+                   "noncommercial_positions", "gvz_close", "gld_volume", "iau_volume"):
+        if column not in frame:
+            frame[column] = 0.0
+        frame[column] = pd.to_numeric(frame[column], errors="coerce").ffill().bfill().fillna(0.0)
     frame["gold_return"] = frame["gold_close"].pct_change()
     frame["dxy_return"] = frame["dxy_close"].pct_change()
     return frame.replace([np.inf, -np.inf], np.nan).dropna(subset=["gold_close"])
-
-
-def align_to_m15(daily_features: pd.DataFrame, m15: pd.DataFrame) -> pd.DataFrame:
-    """Forward-fill daily macro factors onto an M15 price index."""
-    macro = daily_features.reindex(m15.index, method="ffill")
-    return m15.join(macro.drop(columns=["gold_open", "gold_high", "gold_low", "gold_volume"], errors="ignore"), how="left")
