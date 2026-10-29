@@ -11,7 +11,7 @@ from .modal_engine import _print_summary, forecast_worker
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = PROJECT_ROOT / "data" / "macro_monthly_forecast.json"
+DEFAULT_OUTPUT = PROJECT_ROOT / "data" / "macro_month_forecast.json"
 
 
 def main() -> None:
@@ -30,7 +30,8 @@ def main() -> None:
         fred_api_key=fred_api_key,
     )
     if args.output == DEFAULT_OUTPUT:
-        args.output = PROJECT_ROOT / "data" / f"macro_{args.mode}_forecast.json"
+        filename_mode = {"monthly": "month", "yearly": "year"}.get(args.mode, args.mode)
+        args.output = PROJECT_ROOT / "data" / f"macro_{filename_mode}_forecast.json"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(payload, indent=2, allow_nan=False),

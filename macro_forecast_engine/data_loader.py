@@ -100,16 +100,17 @@ def fetch_cot_data() -> pd.DataFrame:
         if date_col is None:
             return pd.DataFrame()
         data.index = pd.to_datetime(data[date_col], errors="coerce")
-        numeric = {
-            "commercial_positions": "commercial_positions",
-            "noncommercial_positions": "noncommercial_positions",
-        }
         result = pd.DataFrame(index=data.index)
-        for source, target in numeric.items():
-            candidates = [c for c in data.columns if source in c and "net" in c]
-            if candidates:
-                result[target] = pd.to_numeric(data[candidates[0]], errors="coerce")
-        return result.sort_index()
+        for prefix, target in (("comm_positions", "commercial_positions"),
+                               ("noncomm_positions", "noncommercial_positions")):
+            long = next((c for c in data.columns if c.startswith(f"{prefix}_long")), None)
+            short = next((c for c in data.columns if c.startswith(f"{prefix}_short")), None)
+            if long and short:
+                result[target] = (
+                    pd.to_numeric(data[long], errors="coerce")
+                    - pd.to_numeric(data[short], errors="coerce")
+                )
+        return result.groupby(level=0).last().sort_index()
     except (requests.RequestException, ValueError, KeyError):
         return pd.DataFrame()
 

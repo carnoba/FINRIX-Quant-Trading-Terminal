@@ -43,7 +43,7 @@ def _business_dates(last: pd.Timestamp, horizon: int) -> pd.DatetimeIndex:
     return pd.bdate_range(last.normalize() + pd.offsets.BDay(1), periods=horizon)
 
 
-def _quantile_forecast(features: pd.DataFrame, horizon: int) -> pd.DataFrame:
+def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Use TFT quantiles when supported, otherwise retain a calibrated drift baseline."""
     dates = _business_dates(features.index[-1], horizon)
     returns = features["gold_return"].dropna().tail(252)
@@ -54,6 +54,12 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> pd.DataFrame:
     result["q0.5"] = prices
     result["q0.1"] = prices * np.exp(-1.2816 * volatility * np.sqrt(np.arange(1, horizon + 1)))
     result["q0.9"] = prices * np.exp(1.2816 * volatility * np.sqrt(np.arange(1, horizon + 1)))
+    diagnostics: dict[str, Any] = {
+        "model_used": "calibrated_fallback",
+        "train_loss": None,
+        "valid_loss": None,
+        "overfit_check": "not_available",
+    }
     try:
         from neuralforecast import NeuralForecast
         from neuralforecast.models import TFT
@@ -62,16 +68,43 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> pd.DataFrame:
         train["unique_id"] = "XAUUSD"
         model = TFT(h=horizon, input_size=min(60, max(20, len(train) // 4)),
                     max_steps=100, loss=MQLoss(level=[10, 50, 90]))
-        prediction = NeuralForecast(models=[model], freq="D").fit(
-            train[["unique_id", "ds", "y"]], val_size=0
-        ).predict()
+        validation_size = horizon if len(train) > horizon * 3 else 0
+        nf = NeuralForecast(models=[model], freq="D").fit(
+            train[["unique_id", "ds", "y"]], val_size=validation_size
+        )
+        prediction = nf.predict()
+        trainer = getattr(nf.models[0], "trainer", None)
+        metrics = {}
+        for metric_source in (
+            getattr(trainer, "callback_metrics", {}),
+            getattr(trainer, "logged_metrics", {}),
+            getattr(trainer, "progress_bar_metrics", {}),
+        ):
+            metrics.update(metric_source)
+        def metric_value(name: str) -> float | None:
+            value = metrics.get(name)
+            return float(value.detach().cpu().item()) if value is not None and hasattr(value, "detach") else (
+                float(value) if value is not None else None
+            )
+        train_loss = metric_value("train_loss_epoch") or metric_value("train_loss")
+        valid_loss = metric_value("valid_loss") or metric_value("val_loss")
+        diagnostics = {
+            "model_used": "NeuralForecast_TFT",
+            "train_loss": train_loss,
+            "valid_loss": valid_loss,
+            "validation_size": validation_size,
+            "overfit_check": (
+                "validation_unavailable" if valid_loss is None else
+                "review_required" if train_loss and valid_loss > train_loss * 3 else "within_tolerance"
+            ),
+        }
         columns = {str(column).lower(): column for column in prediction.columns}
         quantiles = [columns.get(f"tft-lo-{level}") or columns.get(f"tft-hi-{level}") for level in (10, 50, 90)]
         if all(quantiles):
             result.iloc[:, :] = prediction[quantiles].to_numpy()[:horizon]
     except (AttributeError, ImportError, OSError, RuntimeError, ValueError, KeyError, TypeError):
         pass
-    return result
+    return result, diagnostics
 
 
 def _monte_carlo(last_price: float, forecast: pd.DataFrame,
@@ -130,7 +163,7 @@ def _run_worker(mode: str, market_period: str = "10y", fred_api_key: str = "") -
     cot = fetch_cot_data()
     news = fetch_live_news()
     features = build_feature_frame(market, macro, cot, news)
-    forecast = _quantile_forecast(features, HORIZONS[mode])
+    forecast, training = _quantile_forecast(features, HORIZONS[mode])
     mc = _monte_carlo(float(features["gold_close"].iloc[-1]), forecast, features["gold_return"])
     smc = _smc(features)
     rows = []
@@ -156,6 +189,7 @@ def _run_worker(mode: str, market_period: str = "10y", fred_api_key: str = "") -
         "mode": mode, "generated_at_utc": now.isoformat(),
         "data": {"rows": len(features), "horizon": HORIZONS[mode], "horizon_unit": "business_days",
                  "factors": list(features.columns)},
+        "training": training,
         "directional_bias": mc["directional_bias"], "confidence_score": mc["confidence_score"],
         "macro_directional_bias": macro_bias,
         "buy_zone": smc["buy_zone"], "sell_zone": smc["sell_zone"],
@@ -193,7 +227,8 @@ if modal is not None:
 
     @app.local_entrypoint()
     def main(mode: str = "monthly", output: str = "", market_period: str = "10y") -> None:
-        destination = Path(output) if output else DATA_DIR / f"macro_{mode}_forecast.json"
+        filename_mode = {"monthly": "month", "yearly": "year"}.get(mode, mode)
+        destination = Path(output) if output else DATA_DIR / f"macro_{filename_mode}_forecast.json"
         payload = forecast_worker.remote(mode=mode, market_period=market_period,
                                          fred_api_key=os.getenv("FRED_API_KEY", ""))
         destination.parent.mkdir(parents=True, exist_ok=True)
