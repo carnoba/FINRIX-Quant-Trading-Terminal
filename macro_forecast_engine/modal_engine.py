@@ -315,16 +315,27 @@ def _run_worker(mode: str, market_period: str = "10y", fred_api_key: str = "") -
 def _print_summary(payload: dict[str, Any], output: Path) -> None:
     print("\nInstitutional XAUUSD Quant Forecast")
     print("-" * 100)
-    print(f"Selected Mode          : {payload['mode'].capitalize()}")
-    print(f"Primary Directional Bias: {payload['directional_bias'].capitalize()} ({payload['confidence_score']:.2f}%)")
-    print(f"Buy Zone               : {payload['buy_zone']}")
-    print(f"Sell Zone              : {payload['sell_zone']}")
-    print(f"Stop-Loss / TP1 / TP2  : {payload['risk_levels']}")
+    training = payload["training"]
+    risk = payload["risk_levels"]
+    mc = payload["monte_carlo"]
+    print(f"Mode & Horizon Days    : {payload['mode'].capitalize()} / {payload['data']['horizon']}")
+    print(f"Target Price ($)       : {mc['target_price']:,.4f}")
+    print(f"Volatility Corridor ($): {mc['target_low']:,.4f} - {mc['target_high']:,.4f}")
+    print(f"Directional Bias       : {payload['directional_bias'].capitalize()} "
+          f"({payload['confidence_score']:.2f}%)")
+    print(f"SMC Buy Reaction Zone  : {payload['buy_zone']}")
+    print(f"SMC Sell Reaction Zone : {payload['sell_zone']}")
+    print(f"Kelly Position Size    : {payload['position_sizing']['units']:.6f} units/lots")
+    print(f"Dynamic SL             : {risk['stop_loss']:,.4f}")
+    print(f"Dynamic TP1 / TP2 / TP3: {risk['take_profit_1']:,.4f} / "
+          f"{risk['take_profit_2']:,.4f} / {risk['take_profit_3']:,.4f}")
+    print(f"Model Losses           : train={training.get('train_loss')} | "
+          f"valid={training.get('valid_loss')}")
     print("Date         Target q50     Low q10       High q90      Signal")
     for row in payload["forecast"]:
         print(f"{row['date']}  {row['target_q50']:>12,.2f}  {row['expected_low_q10']:>12,.2f}  "
               f"{row['expected_high_q90']:>12,.2f}  {row['signal_bias']}")
-    print(f"JSON Output             : {output}")
+    print(f"Generated JSON Artifact : {output}")
 
 
 if modal is not None:
