@@ -15,12 +15,16 @@ try:
     from .config import DATA_DIR, FINBERT_MODEL, HORIZONS
     from .data_loader import (build_feature_frame, fetch_cot_data, fetch_live_news,
                               fetch_macro_data, fetch_market_data)
+    from .trader_execution import build_execution_plan
+    from .trader_risk import size_position
 except ImportError:  # Modal may load this file as a top-level script.
     from macro_forecast_engine.config import DATA_DIR, FINBERT_MODEL, HORIZONS
     from macro_forecast_engine.data_loader import (
         build_feature_frame, fetch_cot_data, fetch_live_news,
         fetch_macro_data, fetch_market_data,
     )
+    from macro_forecast_engine.trader_execution import build_execution_plan
+    from macro_forecast_engine.trader_risk import size_position
 
 try:
     import modal
@@ -30,7 +34,8 @@ except ImportError:  # pragma: no cover
 APP_NAME = "xauusd-macro-quant-forecast"
 if modal is not None:
     image = modal.Image.debian_slim(python_version="3.11").pip_install(
-        "neuralforecast", "transformers", "torch", "yfinance", "requests", "pandas", "numpy"
+        "neuralforecast==1.7.5", "transformers", "torch", "yfinance", "requests", "pandas", "numpy",
+        "scikit-learn"
     ).add_local_python_source(
         "macro_forecast_engine"
     )
@@ -64,46 +69,85 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
         from neuralforecast import NeuralForecast
         from neuralforecast.models import TFT
         from neuralforecast.losses.pytorch import MQLoss
+        from pytorch_lightning.callbacks import Callback, EarlyStopping
+        import torch
+        class MetricsCapture(Callback):
+            def __init__(self) -> None:
+                self.metrics: dict[str, Any] = {}
+                self.global_step = 0
+
+            def on_train_end(self, trainer: Any, pl_module: Any) -> None:
+                self._capture(trainer)
+                self.global_step = int(trainer.global_step)
+
+            def on_validation_end(self, trainer: Any, pl_module: Any) -> None:
+                self._capture(trainer)
+
+            def _capture(self, trainer: Any) -> None:
+                metrics = dict(trainer.callback_metrics)
+                metrics.update(trainer.logged_metrics)
+                if metrics:
+                    self.metrics = metrics
+
+        metrics_capture = MetricsCapture()
         train = features.reset_index(names="ds")[["ds", "gold_close"]].rename(columns={"gold_close": "y"})
         train["unique_id"] = "XAUUSD"
         model = TFT(h=horizon, input_size=min(60, max(20, len(train) // 4)),
-                    max_steps=100, loss=MQLoss(level=[10, 50, 90]))
+                    max_steps=500, val_check_steps=10, loss=MQLoss(level=[10, 50, 90]),
+                    learning_rate=1e-4, dropout=0.30, optimizer_kwargs={"weight_decay": 1e-4},
+                    optimizer=torch.optim.AdamW,
+                    early_stop_patience_steps=15,
+                    callbacks=[metrics_capture,
+                               EarlyStopping(monitor="valid_loss", patience=15, mode="min",
+                                             strict=False)])
         validation_size = horizon if len(train) > horizon * 3 else 0
-        nf = NeuralForecast(models=[model], freq="D").fit(
-            train[["unique_id", "ds", "y"]], val_size=validation_size
-        )
-        prediction = nf.predict()
-        trainer = getattr(nf.models[0], "trainer", None)
-        metrics = {}
-        for metric_source in (
-            getattr(trainer, "callback_metrics", {}),
-            getattr(trainer, "logged_metrics", {}),
-            getattr(trainer, "progress_bar_metrics", {}),
-        ):
-            metrics.update(metric_source)
+        nf = NeuralForecast(models=[model], freq="D")
+        nf.fit(train[["unique_id", "ds", "y"]], val_size=validation_size)
+        metrics = metrics_capture.metrics
         def metric_value(name: str) -> float | None:
             value = metrics.get(name)
             return float(value.detach().cpu().item()) if value is not None and hasattr(value, "detach") else (
                 float(value) if value is not None else None
             )
-        train_loss = metric_value("train_loss_epoch") or metric_value("train_loss")
-        valid_loss = metric_value("valid_loss") or metric_value("val_loss")
+        def metric_fragment(fragment: str) -> float | None:
+            for name in metrics:
+                if fragment in str(name).lower():
+                    value = metric_value(name)
+                    if value is not None:
+                        return value
+            return None
+        train_loss = next((metric_value(name) for name in (
+            "train_loss_epoch", "train_loss", "ptl/train_loss", "train_loss_step"
+        ) if metric_value(name) is not None), metric_fragment("train_loss"))
+        valid_loss = next((metric_value(name) for name in (
+            "valid_loss", "val_loss", "ptl/val_loss"
+        ) if metric_value(name) is not None), metric_fragment("val_loss"))
         diagnostics = {
             "model_used": "NeuralForecast_TFT",
             "train_loss": train_loss,
             "valid_loss": valid_loss,
             "validation_size": validation_size,
+            "early_stopping": {"patience": 15, "monitor": "ptl/val_loss"},
+            "early_stopping_triggered": metrics_capture.global_step < 500,
             "overfit_check": (
                 "validation_unavailable" if valid_loss is None else
                 "review_required" if train_loss and valid_loss > train_loss * 3 else "within_tolerance"
             ),
         }
+        prediction = nf.predict()
         columns = {str(column).lower(): column for column in prediction.columns}
-        quantiles = [columns.get(f"tft-lo-{level}") or columns.get(f"tft-hi-{level}") for level in (10, 50, 90)]
+        quantiles = [
+            columns.get("tft-lo-90") or columns.get("tft-lo-10"),
+            columns.get("tft-median") or columns.get("tft-lo-50"),
+            columns.get("tft-hi-90") or columns.get("tft-hi-10"),
+        ]
         if all(quantiles):
-            result.iloc[:, :] = prediction[quantiles].to_numpy()[:horizon]
-    except (AttributeError, ImportError, OSError, RuntimeError, ValueError, KeyError, TypeError):
-        pass
+            ordered = np.sort(prediction[quantiles].to_numpy()[:horizon], axis=1)
+            result["q0.1"] = ordered[:, 0]
+            result["q0.5"] = ordered[:, 1]
+            result["q0.9"] = ordered[:, 2]
+    except (AttributeError, ImportError, OSError, RuntimeError, ValueError, KeyError, TypeError) as error:
+        diagnostics["fallback_reason"] = f"{type(error).__name__}: {error}"
     return result, diagnostics
 
 
@@ -183,6 +227,13 @@ def _run_worker(mode: str, market_period: str = "10y", fred_api_key: str = "") -
         macro_bias = "bullish"
     elif float(features["tips10y"].iloc[-1]) > float(features["tips10y"].tail(20).mean()):
         macro_bias = "bearish"
+    execution = build_execution_plan(float(features["gold_close"].iloc[-1]), rows, smc,
+                                     mc["directional_bias"])
+    risk = size_position(
+        execution["entry_zone"][1] if execution["side"] == "long" else execution["entry_zone"][0],
+        rows[0]["expected_low_q10"], rows[0]["target_q50"], rows[0]["expected_high_q90"],
+        equity=100_000.0,
+    )
     return {
         "execution_environment": "Modal GPU A10G",
         "model": "NeuralForecast TFT quantiles with calibrated fallback",
@@ -193,9 +244,8 @@ def _run_worker(mode: str, market_period: str = "10y", fred_api_key: str = "") -
         "directional_bias": mc["directional_bias"], "confidence_score": mc["confidence_score"],
         "macro_directional_bias": macro_bias,
         "buy_zone": smc["buy_zone"], "sell_zone": smc["sell_zone"],
-        "risk_levels": {"stop_loss": round(float(forecast["q0.1"].iloc[0]), 4),
-                        "take_profit_1": round(float(forecast["q0.9"].iloc[0]), 4),
-                        "take_profit_2": round(float(forecast["q0.9"].iloc[-1]), 4)},
+        "risk_levels": execution,
+        "position_sizing": risk,
         "forecast": rows, "milestones": milestones, "monte_carlo": mc,
         "smc": smc, "ingestion": {"fred": ["DFII10", "DGS10-DGS2"], "cot": not cot.empty,
                                   "finbert": FINBERT_MODEL, "headline_count": len(news),

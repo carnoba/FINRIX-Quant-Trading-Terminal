@@ -10,6 +10,12 @@ from typing import Any, Iterable, Mapping, Optional
 import numpy as np
 import pandas as pd
 import requests
+from sklearn.preprocessing import RobustScaler
+
+try:
+    from .data_processor import add_sentiment_and_flow
+except ImportError:  # Modal may load this file as a top-level script.
+    from macro_forecast_engine.data_processor import add_sentiment_and_flow
 
 try:
     import yfinance as yf
@@ -163,6 +169,7 @@ def build_feature_frame(daily: pd.DataFrame, macro: Optional[pd.DataFrame] = Non
     sentiment = 0.0
     if news is not None and not news.empty:
         sentiment = score_headlines(news["headline"].tolist())
+    frame = add_sentiment_and_flow(frame, sentiment, cot)
     frame["sentiment"] = sentiment
     frame["sentiment_velocity"] = frame["sentiment"].diff().fillna(0.0)
     for column in ("tips10y", "curve_spread_10y2y", "commercial_positions",
@@ -170,6 +177,11 @@ def build_feature_frame(daily: pd.DataFrame, macro: Optional[pd.DataFrame] = Non
         if column not in frame:
             frame[column] = 0.0
         frame[column] = pd.to_numeric(frame[column], errors="coerce").ffill().bfill().fillna(0.0)
+    scaled_columns = [
+        "gvz_close", "gld_volume", "iau_volume",
+        "commercial_positions", "noncommercial_positions",
+    ]
+    frame[scaled_columns] = RobustScaler().fit_transform(frame[scaled_columns])
     frame["gold_return"] = frame["gold_close"].pct_change()
     frame["dxy_return"] = frame["dxy_close"].pct_change()
     return frame.replace([np.inf, -np.inf], np.nan).dropna(subset=["gold_close"])
