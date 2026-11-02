@@ -48,22 +48,31 @@ def _business_dates(last: pd.Timestamp, horizon: int) -> pd.DatetimeIndex:
     return pd.bdate_range(last.normalize() + pd.offsets.BDay(1), periods=horizon)
 
 
+def _returns_to_prices(last_price: float, returns: np.ndarray) -> np.ndarray:
+    """Compound predicted log-returns back into nominal price levels."""
+    return float(last_price) * np.exp(np.cumsum(np.asarray(returns, dtype=float), axis=0))
+
+
 def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Use TFT quantiles when supported, otherwise retain a calibrated drift baseline."""
+    """Forecast log-returns, then invert them into nominal price quantiles."""
     dates = _business_dates(features.index[-1], horizon)
-    returns = features["gold_return"].dropna().tail(252)
+    last_price = float(features["gold_close"].iloc[-1])
+    returns = np.log1p(features["gold_return"].dropna()).tail(252)
     drift = float(returns.mean()) if not returns.empty else 0.0
     volatility = max(float(returns.std()), 0.002)
-    prices = float(features["gold_close"].iloc[-1]) * np.exp(drift * np.arange(1, horizon + 1))
+    steps = np.arange(1, horizon + 1)
+    median_returns = np.full(horizon, drift)
+    prices = _returns_to_prices(last_price, median_returns)
     result = pd.DataFrame(index=dates)
     result["q0.5"] = prices
-    result["q0.1"] = prices * np.exp(-1.2816 * volatility * np.sqrt(np.arange(1, horizon + 1)))
-    result["q0.9"] = prices * np.exp(1.2816 * volatility * np.sqrt(np.arange(1, horizon + 1)))
+    result["q0.1"] = last_price * np.exp(drift * steps - 1.2816 * volatility * np.sqrt(steps))
+    result["q0.9"] = last_price * np.exp(drift * steps + 1.2816 * volatility * np.sqrt(steps))
     diagnostics: dict[str, Any] = {
         "model_used": "calibrated_fallback",
         "train_loss": None,
         "valid_loss": None,
         "overfit_check": "not_available",
+        "target_transform": "log_return",
     }
     try:
         from neuralforecast import NeuralForecast
@@ -75,6 +84,8 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
             def __init__(self) -> None:
                 self.metrics: dict[str, Any] = {}
                 self.global_step = 0
+                self.validation_losses: list[float] = []
+                self.training_losses: list[float] = []
 
             def on_train_end(self, trainer: Any, pl_module: Any) -> None:
                 self._capture(trainer)
@@ -83,14 +94,53 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
             def on_validation_end(self, trainer: Any, pl_module: Any) -> None:
                 self._capture(trainer)
 
+            def on_validation_epoch_end(self, trainer: Any, pl_module: Any) -> None:
+                self._capture(trainer)
+                if self.validation_losses:
+                    self.metrics["valid_loss"] = float(np.mean(self.validation_losses))
+                    self.validation_losses.clear()
+
+            def on_train_epoch_end(self, trainer: Any, pl_module: Any) -> None:
+                self._capture(trainer)
+                if self.training_losses:
+                    self.metrics["train_loss_epoch"] = float(np.mean(self.training_losses))
+
+            def on_validation_batch_end(
+                self, trainer: Any, pl_module: Any, outputs: Any, batch: Any,
+                batch_idx: int, dataloader_idx: int = 0,
+            ) -> None:
+                value = self._scalar(outputs)
+                if value is not None:
+                    self.validation_losses.append(value)
+
+            def on_train_batch_end(
+                self, trainer: Any, pl_module: Any, outputs: Any, batch: Any,
+                batch_idx: int,
+            ) -> None:
+                value = self._scalar(outputs)
+                if value is not None:
+                    self.training_losses.append(value)
+
             def _capture(self, trainer: Any) -> None:
                 metrics = dict(trainer.callback_metrics)
                 metrics.update(trainer.logged_metrics)
                 if metrics:
                     self.metrics = metrics
 
+            @staticmethod
+            def _scalar(value: Any) -> float | None:
+                if isinstance(value, dict):
+                    value = value.get("loss", value.get("valid_loss"))
+                if hasattr(value, "detach"):
+                    value = value.detach().cpu().item()
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return None
+
         metrics_capture = MetricsCapture()
-        train = features.reset_index(names="ds")[["ds", "gold_close"]].rename(columns={"gold_close": "y"})
+        train = features.reset_index(names="ds")[["ds", "gold_close"]].copy()
+        train["y"] = np.log(train["gold_close"]).diff().fillna(0.0)
         train["unique_id"] = "XAUUSD"
         model = TFT(h=horizon, input_size=min(60, max(20, len(train) // 4)),
                     max_steps=500, val_check_steps=10, loss=MQLoss(level=[10, 50, 90]),
@@ -122,11 +172,20 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
         valid_loss = next((metric_value(name) for name in (
             "valid_loss", "val_loss", "ptl/val_loss"
         ) if metric_value(name) is not None), metric_fragment("val_loss"))
+        train_trajectories = getattr(nf.models[0], "train_trajectories", [])
+        if train_trajectories:
+            train_loss = float(train_trajectories[-1][1])
+        trajectories = getattr(nf.models[0], "valid_trajectories", [])
+        if valid_loss is None and trajectories:
+            valid_loss = float(trajectories[-1][1])
+        if train_loss is None and metrics_capture.training_losses:
+            train_loss = float(np.mean(metrics_capture.training_losses))
         diagnostics = {
             "model_used": "NeuralForecast_TFT",
             "train_loss": train_loss,
             "valid_loss": valid_loss,
             "validation_size": validation_size,
+            "target_transform": "log_return",
             "early_stopping": {"patience": 15, "monitor": "ptl/val_loss"},
             "early_stopping_triggered": metrics_capture.global_step < 500,
             "overfit_check": (
@@ -142,10 +201,10 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
             columns.get("tft-hi-90") or columns.get("tft-hi-10"),
         ]
         if all(quantiles):
-            ordered = np.sort(prediction[quantiles].to_numpy()[:horizon], axis=1)
-            result["q0.1"] = ordered[:, 0]
-            result["q0.5"] = ordered[:, 1]
-            result["q0.9"] = ordered[:, 2]
+            ordered_returns = np.sort(prediction[quantiles].to_numpy()[:horizon], axis=1)
+            result["q0.1"] = _returns_to_prices(last_price, ordered_returns[:, 0])
+            result["q0.5"] = _returns_to_prices(last_price, ordered_returns[:, 1])
+            result["q0.9"] = _returns_to_prices(last_price, ordered_returns[:, 2])
     except (AttributeError, ImportError, OSError, RuntimeError, ValueError, KeyError, TypeError) as error:
         diagnostics["fallback_reason"] = f"{type(error).__name__}: {error}"
     return result, diagnostics
