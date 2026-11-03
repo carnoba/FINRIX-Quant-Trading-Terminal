@@ -22,3 +22,16 @@ def add_sentiment_and_flow(
         if columns:
             result["institutional_flow"] = result[columns].diff().sum(axis=1).fillna(0.0)
     return result
+
+
+def analyze_news_sentiment(news: pd.DataFrame, model_name: str = "ProsusAI/finbert") -> dict[str, float]:
+    """Score live news and expose a simple sentiment velocity metric."""
+    from .data_loader import score_headlines
+
+    if news.empty or "headline" not in news:
+        return {"score": 0.0, "velocity": 0.0}
+    score = score_headlines(news["headline"].tolist(), model_name=model_name)
+    velocity = score - float(news["headline"].head(1).map(
+        lambda value: score_headlines([value], model_name=model_name)
+    ).iloc[0]) if len(news) > 1 else 0.0
+    return {"score": float(score), "velocity": float(velocity)}
