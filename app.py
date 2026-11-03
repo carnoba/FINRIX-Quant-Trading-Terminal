@@ -31,7 +31,10 @@ from macro_forecast_engine.data_loader import fetch_live_news
 from macro_forecast_engine.data_processor import analyze_news_sentiment
 from macro_forecast_engine.trader_execution import build_execution_plan
 from macro_forecast_engine.trader_risk import size_position
-from macro_forecast_engine.trader_timemachine import replay_forecasts
+from macro_forecast_engine.trader_timemachine import (
+    STRATEGIES, TIMEFRAME_FETCH, normalize_timeframe_prices, run_strategy_matrix,
+    replay_forecasts,
+)
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
@@ -57,6 +60,23 @@ def choose(message: str, choices: list[str]) -> str:
         return choices[int(value) - 1]
     except (ValueError, IndexError):
         return choices[-1]
+
+
+def choose_many(message: str, choices: list[str]) -> list[str]:
+    if questionary is not None:
+        selected = questionary.checkbox(message, choices=choices).ask()
+        return selected or choices[:1]
+    console.print("\n".join(f"{i}. {value}" for i, value in enumerate(choices, 1)))
+    raw = ask(f"{message} (comma-separated numbers)", "1")
+    selected: list[str] = []
+    for token in raw.split(","):
+        try:
+            value = choices[int(token.strip()) - 1]
+        except (ValueError, IndexError):
+            continue
+        if value not in selected:
+            selected.append(value)
+    return selected or choices[:1]
 
 
 def banner() -> None:
@@ -121,7 +141,8 @@ def print_execution_card(payload: dict[str, Any], equity: float) -> None:
                                                 ("take_profit_1", "take_profit_2", "take_profit_3")))
     table.add_row("Kelly Position Size", f"{sizing['units']:.6f} units (equity ${equity:,.2f})")
     table.add_row("Confidence", f"{payload['confidence_score']:.2f}%")
-    table.add_row("Risk : Reward", f"{sizing['reward_risk']:.2f} : 1")
+    reward_ratio = float(risk.get("risk_reward", sizing.get("reward_risk", 0.0)))
+    table.add_row("Risk : Reward", f"1 : {reward_ratio:.2f}")
     console.print(table)
 
 
@@ -175,12 +196,16 @@ def news_report() -> None:
     table.add_column("Metric", style="green")
     table.add_column("Value")
     table.add_row("Headlines", str(len(news)))
-    table.add_row("Hawkish / Dovish Score", f"{sentiment:+.4f}")
-    table.add_row("Bias", "HAWKISH" if sentiment > 0.05 else "DOVISH" if sentiment < -0.05 else "NEUTRAL")
-    table.add_row("Sentiment Velocity", f"{sentiment_data['velocity']:+.4f}")
+    table.add_row("Hawkish / Dovish Score", f"{sentiment:+.4f}" if not pd.isna(sentiment) else "unavailable")
+    table.add_row("Bias", "DOVISH" if sentiment > 0.05 else "HAWKISH" if sentiment < -0.05 else "UNAVAILABLE")
+    table.add_row("Sentiment Velocity", f"{sentiment_data['velocity']:+.4f}"
+                  if not pd.isna(sentiment_data["velocity"]) else "unavailable")
     console.print(table)
-    for title in news["headline"].head(8).tolist():
-        console.print(f"  - {title}")
+    if not news.empty:
+        for title in news["headline"].head(8).tolist():
+            console.print(f"  - {title}")
+    else:
+        console.print("  No gold macro headlines were returned by the approved feeds.")
 
 
 def execution_lookup() -> None:
@@ -200,26 +225,29 @@ def execution_lookup() -> None:
 
 
 def backtester() -> None:
-    mode = choose("Replay horizon", ["daily (30)", "monthly (22)", "yearly (252)"])
-    horizon = int(mode.split("(")[1].split(")")[0])
+    strategies = choose_many("Select strategies to test", list(STRATEGIES))
+    timeframes = choose_many("Select timeframes to test", ["1m", "5m", "15m", "1h", "4h", "1D"])
     from macro_forecast_engine.data_loader import fetch_market_data
     with console.status("[green]Loading historical XAUUSD data...[/green]"):
-        market = fetch_market_data("10y")
-    prices = market["gold_close"]
-    result = replay_forecasts(
-        prices,
-        lambda history, size: _historical_log_return_forecast(history, size),
-        horizon=min(horizon, max(1, len(prices) // 10)),
-        min_history=60,
+        frames = []
+        for timeframe in timeframes:
+            period, interval = TIMEFRAME_FETCH[timeframe]
+            market = fetch_market_data(period, interval=interval)
+            frames.append((timeframe, normalize_timeframe_prices(market["gold_close"], timeframe)))
+    result = pd.concat(
+        [run_strategy_matrix(prices, strategies, [timeframe]) for timeframe, prices in frames],
+        ignore_index=True,
     )
-    table = Table(title="Lookahead-Safe Timemachine Replay", box=box.ROUNDED)
-    table.add_column("Metric", style="green")
-    table.add_column("Value")
-    table.add_row("Replay Windows", str(len(result)))
-    table.add_row("Mean Absolute Error", f"${result['mae'].mean():,.4f}" if not result.empty else "n/a")
-    table.add_row("Directional Win Rate",
-                  f"{result['direction_correct'].mean() * 100:.2f}%" if not result.empty else "n/a")
-    table.add_row("Strategy", "Macro engine log-return trend replay")
+    table = Table(title="Lookahead-Safe Multi-Strategy / Multi-Timeframe Replay", box=box.ASCII)
+    for column in ("Strategy", "Timeframe", "Win Rate %", "Profit Factor",
+                   "Max Drawdown %", "Sharpe", "Net Expected Return %"):
+        table.add_column(column, style="green" if column in ("Strategy", "Timeframe") else None,
+                         justify="right" if column not in ("Strategy", "Timeframe") else "left")
+    for row in result.to_dict("records"):
+        profit_factor = "inf" if math.isinf(row["profit_factor"]) else f"{row['profit_factor']:.2f}"
+        table.add_row(row["strategy"], row["timeframe"], f"{row['win_rate']:.2f}",
+                      profit_factor, f"{row['max_drawdown']:.2f}",
+                      f"{row['sharpe_ratio']:.2f}", f"{row['net_expected_return']:.2f}")
     console.print(table)
 
 
@@ -233,28 +261,37 @@ def _historical_log_return_forecast(history: pd.Series, horizon: int) -> list[fl
 
 
 def ensemble() -> None:
-    payload = run_forecast("daily", force=False)
-    sizing = payload.get("position_sizing")
-    if sizing is None:
-        row = payload["forecast"][0]
-        sizing = size_position(
-            row["target_q50"], row["expected_low_q10"], row["target_q50"],
-            row["expected_high_q90"], 100000.0,
-        )
-    scores = {
-        "TFT Trend": payload["confidence_score"],
-        "SMC Reaction Zones": payload["smc"]["reaction_confidence"],
-        "Kelly Risk": sizing["allocation_fraction"] * 100,
-        "FinBERT Macro Sentiment": 60.0 if payload.get("macro_directional_bias") != "neutral" else 0.0,
-    }
-    best = max(scores, key=scores.get)
-    table = Table(title="Multi-Strategy Ensemble", box=box.ROUNDED)
-    table.add_column("Strategy", style="green")
-    table.add_column("Confidence", justify="right")
-    for name, score in sorted(scores.items(), key=lambda item: item[1], reverse=True):
-        table.add_row(name, f"{float(score):.2f}%")
+    proceed = ask(
+        "[WARNING] Parallel multi-strategy backtesting on Modal A10G consumes cloud credits. "
+        "Proceed? (Y/N)", "N",
+    ).strip().lower()
+    if proceed not in {"y", "yes"}:
+        console.print("[yellow]Cancelled; no Modal jobs were submitted.[/yellow]")
+        return
+    with console.status("[green]Running parallel strategy ensemble on Modal A10G...[/green]"):
+        command = [sys.executable, "-m", "modal", "run",
+                   "macro_forecast_engine/modal_engine.py", "--mode", "ensemble"]
+        environment = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True,
+                                   encoding="utf-8", errors="replace", env=environment)
+    if completed.returncode != 0:
+        raise RuntimeError(f"Modal ensemble failed with exit code {completed.returncode}")
+    path = DATA_DIR / "modal_ensemble.json"
+    if not path.exists():
+        raise FileNotFoundError(f"Ensemble artifact was not created: {path}")
+    report = json.loads(path.read_text(encoding="utf-8"))
+    table = Table(title="Modal A10G Top 5 Strategy Leaderboard", box=box.ASCII)
+    table.add_column("Rank", justify="right")
+    table.add_column("Strategy / Timeframe", style="green")
+    table.add_column("Win Rate %", justify="right")
+    table.add_column("Confidence %", justify="right")
+    table.add_column("Net Return %", justify="right")
+    for rank, row in enumerate(report["leaderboard"][:5], 1):
+        table.add_row(str(rank), f"{row['strategy']} / {row['timeframe']}",
+                      f"{row['win_rate']:.2f}", f"{row['confidence']:.2f}",
+                      f"{row['net_expected_return']:.2f}")
     console.print(table)
-    console.print(Panel(f"[bold green]Recommended strategy: {best}[/bold green]",
+    console.print(Panel(f"[bold green]Recommended strategy: {report['recommendation']}[/bold green]",
                         border_style="green"))
 
 

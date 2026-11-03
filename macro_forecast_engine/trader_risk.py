@@ -31,10 +31,13 @@ def size_position(
     allocation_fraction = min(fractional_kelly, volatility_parity)
     allocation = equity * allocation_fraction
     units = allocation / entry if entry > 0 else 0.0
+    if equity > 0 and entry > 0:
+        units = max(0.01, units)
+        allocation = max(allocation, units * entry)
     return {
         "entry": round(entry, 4),
         "win_probability": round(win_probability, 6),
-        "reward_risk": round(reward_risk, 6),
+        "reward_risk": round(max(reward_risk, 0.0), 6),
         "fractional_kelly": round(fractional_kelly, 6),
         "corridor_volatility": round(corridor_volatility, 6),
         "volatility_parity": round(volatility_parity, 6),

@@ -17,6 +17,9 @@ try:
                               fetch_macro_data, fetch_market_data)
     from .trader_execution import build_execution_plan
     from .trader_risk import size_position
+    from .trader_timemachine import (
+        STRATEGIES, TIMEFRAME_FETCH, normalize_timeframe_prices, run_strategy_matrix,
+    )
 except ImportError:  # Modal may load this file as a top-level script.
     from macro_forecast_engine.config import DATA_DIR, FINBERT_MODEL, HORIZONS
     from macro_forecast_engine.data_loader import (
@@ -25,6 +28,9 @@ except ImportError:  # Modal may load this file as a top-level script.
     )
     from macro_forecast_engine.trader_execution import build_execution_plan
     from macro_forecast_engine.trader_risk import size_position
+    from macro_forecast_engine.trader_timemachine import (
+        STRATEGIES, TIMEFRAME_FETCH, normalize_timeframe_prices, run_strategy_matrix,
+    )
 
 try:
     import modal
@@ -345,8 +351,48 @@ if modal is not None:
                         fred_api_key: str = "") -> dict[str, Any]:
         return _run_worker(mode, market_period, fred_api_key or os.getenv("FRED_API_KEY", ""))
 
+    @app.function(image=image, gpu="A10G", timeout=1800, retries=1)
+    def strategy_backtest_worker(strategy: str, timeframe: str,
+                                 market_period: str = "5y") -> dict[str, Any]:
+        default_period, interval = TIMEFRAME_FETCH[timeframe]
+        period = default_period if timeframe != "1D" else market_period
+        market = fetch_market_data(period, interval=interval)
+        prices = normalize_timeframe_prices(market["gold_close"], timeframe)
+        result = run_strategy_matrix(prices, [strategy], [timeframe])
+        row = result.iloc[0].to_dict()
+        volatility = max(abs(float(row["sharpe_ratio"])), 1.0)
+        row["confidence"] = float(np.clip(
+            0.6 * float(row["win_rate"]) + 10.0 * volatility
+            + max(float(row["net_expected_return"]), 0.0), 0.0, 100.0
+        ))
+        return row
+
     @app.local_entrypoint()
     def main(mode: str = "monthly", output: str = "", market_period: str = "10y") -> None:
+        if mode == "ensemble":
+            destination = Path(output) if output else DATA_DIR / "modal_ensemble.json"
+            tasks = [(strategy, timeframe) for timeframe in ("1D", "4h", "1h")
+                     for strategy in STRATEGIES]
+            rows = list(strategy_backtest_worker.map(
+                [strategy for strategy, _ in tasks],
+                [timeframe for _, timeframe in tasks],
+                [market_period] * len(tasks),
+            ))
+            rows.sort(key=lambda row: (float(row["confidence"]),
+                                       float(row["net_expected_return"])), reverse=True)
+            payload = {
+                "execution_environment": "Modal GPU A10G",
+                "generated_at_utc": pd.Timestamp.now(tz="UTC").isoformat(),
+                "leaderboard": rows[:5],
+                "recommendation": f"{rows[0]['strategy']} / {rows[0]['timeframe']}",
+            }
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(json.dumps(payload, indent=2, allow_nan=False), encoding="utf-8")
+            print(f"Modal A10G ensemble artifact: {destination}")
+            for rank, row in enumerate(rows[:5], 1):
+                print(f"{rank}. {row['strategy']} / {row['timeframe']} | "
+                      f"win={row['win_rate']:.2f}% confidence={row['confidence']:.2f}%")
+            return
         filename_mode = {"monthly": "month", "yearly": "year"}.get(mode, mode)
         destination = Path(output) if output else DATA_DIR / f"macro_{filename_mode}_forecast.json"
         payload = forecast_worker.remote(mode=mode, market_period=market_period,

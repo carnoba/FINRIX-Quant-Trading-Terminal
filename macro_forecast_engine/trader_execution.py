@@ -33,6 +33,8 @@ def build_execution_plan(
         stop = max(entry * 1.001, structural_stop, float(highs[0]))
         targets = [float(np.quantile(mids, quantile)) for quantile in (0.25, 0.5, 0.75)]
         targets = [min(entry, target) for target in targets]
+    risk_distance = abs(entry - stop)
+    reward_distance = abs(targets[2] - entry)
     return {
         "side": "long" if bullish else "short",
         "entry_zone": [round(min(entry, float(lows[0])), 4), round(max(entry, float(highs[0])), 4)],
@@ -40,6 +42,9 @@ def build_execution_plan(
         "take_profit_1": round(targets[0], 4),
         "take_profit_2": round(targets[1], 4),
         "take_profit_3": round(targets[2], 4),
+        "risk_distance": round(risk_distance, 4),
+        "reward_distance": round(reward_distance, 4),
+        "risk_reward": round(reward_distance / max(risk_distance, 1e-9), 4),
         "trailing_stop": {
             "activation": round(targets[0], 4),
             "distance": round(abs(targets[0] - stop), 4),

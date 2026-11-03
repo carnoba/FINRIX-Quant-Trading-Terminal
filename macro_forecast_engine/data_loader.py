@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from io import StringIO
 import xml.etree.ElementTree as ET
 from typing import Any, Iterable, Mapping, Optional
@@ -121,10 +122,34 @@ def fetch_cot_data() -> pd.DataFrame:
         return pd.DataFrame()
 
 
+GOLD_NEWS_FEEDS: tuple[tuple[str, str], ...] = (
+    ("federal_reserve", "https://www.federalreserve.gov/feeds/press_all.xml"),
+    ("bls", "https://www.bls.gov/feed/bls_latest.rss"),
+    ("treasury", "https://home.treasury.gov/news/press-releases/rss.xml"),
+    ("world_gold_council", "https://www.gold.org/rss/news"),
+)
+GOLD_MACRO_KEYWORDS = re.compile(
+    r"\b("
+    r"gold|xau|bullion|precious metals?|commodity|commodities|"
+    r"federal reserve|fed\b|fomc|rate decision|interest rate|"
+    r"cpi|ppi|inflation|consumer price|producer price|"
+    r"dxy|dollar index|us dollar|treasury yield|bond yield|"
+    r"10-year|10y yield|central bank.{0,30}gold|gold reserves?|"
+    r"geopolit|sanction|war|conflict|red sea|ukraine|middle east"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def filter_gold_macro_headlines(headlines: Iterable[Any]) -> list[str]:
+    """Keep only headlines tied to gold macro drivers."""
+    return [text for item in headlines if (text := str(item).strip())
+            and GOLD_MACRO_KEYWORDS.search(text)]
+
+
 def fetch_live_news() -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
-    for feed_url in ("https://www.forexfactory.com/ff_news.xml",
-                     "https://www.cnbc.com/id/100003114/device/rss/rss.html"):
+    for source, feed_url in GOLD_NEWS_FEEDS:
         try:
             response = requests.get(feed_url, headers={"User-Agent": "macro-forecast-engine/1.0"}, timeout=30)
             response.raise_for_status()
@@ -134,27 +159,39 @@ def fetch_live_news() -> pd.DataFrame:
         for item in root.findall(".//item"):
             title = (item.findtext("title") or "").strip()
             date = pd.to_datetime(item.findtext("pubDate"), errors="coerce", utc=True)
-            if title and not pd.isna(date):
-                rows.append({"date": date.tz_localize(None), "headline": title})
-        if rows:
-            break
-    return pd.DataFrame(rows, columns=["date", "headline"])
+            if title and not pd.isna(date) and GOLD_MACRO_KEYWORDS.search(title):
+                rows.append({"date": date.tz_localize(None), "headline": title, "source": source})
+    result = pd.DataFrame(rows, columns=["date", "headline", "source"])
+    if result.empty:
+        return result
+    return result.drop_duplicates(subset=["headline"]).sort_values("date", ascending=False).reset_index(drop=True)
 
 
 def score_headlines(headlines: Iterable[Any], model_name: str = "ProsusAI/finbert") -> float:
-    texts = [str(item) for item in headlines if item]
+    texts = filter_gold_macro_headlines(headlines)
     if not texts:
-        return 0.0
+        return float("nan")
     try:
         from transformers import pipeline
         classifier = pipeline("text-classification", model=model_name, top_k=None, device=0)
         values = []
         for output in classifier(texts, truncation=True, max_length=256):
-            labels = {str(item["label"]).lower(): float(item["score"]) for item in output}
-            values.append(labels.get("positive", 0.0) - labels.get("negative", 0.0))
-        return float(np.mean(values)) if values else 0.0
+            labels = output if isinstance(output, list) else [output]
+            scores = {str(item["label"]).lower(): float(item["score"]) for item in labels}
+            positive = scores.get("positive", 0.0)
+            negative = scores.get("negative", 0.0)
+            neutral = scores.get("neutral", 0.0)
+            values.append((positive - negative) * (1.0 - 0.25 * neutral))
+        return float(np.mean(values)) if values else float("nan")
     except (ImportError, OSError, RuntimeError, ValueError):
-        return 0.0
+        bullish = re.compile(r"\b(weak dollar|lower yield|rate cut|dovish|recession|uncertainty|war|sanction)\b", re.I)
+        bearish = re.compile(r"\b(strong dollar|higher yield|rate hike|hawkish|hot inflation|cpi rises|ppi rises)\b", re.I)
+        values = []
+        for text in texts:
+            positive = len(bullish.findall(text))
+            negative = len(bearish.findall(text))
+            values.append((positive - negative) / max(1, positive + negative))
+        return float(np.mean(values)) if values else float("nan")
 
 
 def build_feature_frame(daily: pd.DataFrame, macro: Optional[pd.DataFrame] = None,
@@ -168,7 +205,8 @@ def build_feature_frame(daily: pd.DataFrame, macro: Optional[pd.DataFrame] = Non
         frame = frame.join(cot.reindex(frame.index, method="ffill"), how="left")
     sentiment = 0.0
     if news is not None and not news.empty:
-        sentiment = score_headlines(news["headline"].tolist())
+        scored_sentiment = score_headlines(news["headline"].tolist())
+        sentiment = 0.0 if pd.isna(scored_sentiment) else float(scored_sentiment)
     frame = add_sentiment_and_flow(frame, sentiment, cot)
     frame["sentiment"] = sentiment
     frame["sentiment_velocity"] = frame["sentiment"].diff().fillna(0.0)

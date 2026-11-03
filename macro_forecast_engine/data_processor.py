@@ -31,7 +31,10 @@ def analyze_news_sentiment(news: pd.DataFrame, model_name: str = "ProsusAI/finbe
     if news.empty or "headline" not in news:
         return {"score": 0.0, "velocity": 0.0}
     score = score_headlines(news["headline"].tolist(), model_name=model_name)
-    velocity = score - float(news["headline"].head(1).map(
-        lambda value: score_headlines([value], model_name=model_name)
-    ).iloc[0]) if len(news) > 1 else 0.0
+    if pd.isna(score):
+        return {"score": float("nan"), "velocity": float("nan")}
+    midpoint = max(1, len(news) // 2)
+    recent = score_headlines(news["headline"].head(midpoint).tolist(), model_name=model_name)
+    prior = score_headlines(news["headline"].tail(len(news) - midpoint).tolist(), model_name=model_name)
+    velocity = float(recent - prior) if not pd.isna(prior) else float(score)
     return {"score": float(score), "velocity": float(velocity)}
