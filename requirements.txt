@@ -9,3 +9,5 @@ scikit-learn==1.5.2
 yfinance==0.2.48
 requests==2.32.3
 python-dotenv==1.0.1
+rich==13.9.4
+questionary==2.0.1

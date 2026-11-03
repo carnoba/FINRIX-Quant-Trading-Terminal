@@ -50,6 +50,18 @@ Yearly forecast (252 business days):
 python -m modal run macro_forecast_engine/modal_engine.py --mode yearly
 ```
 
+### Interactive terminal application
+
+Launch the green Rich/questionary terminal:
+
+```bash
+python app.py
+```
+
+The menu can submit live Daily, Monthly, and Yearly Modal GPU forecasts, inspect
+FinBERT news sentiment, calculate dynamic SMC/TFT execution levels and Kelly
+sizing, replay historical strategies without lookahead, and display this guide.
+
 ## Output
 
 Each mode writes `data/macro_{mode}_forecast.json`. The JSON contains:

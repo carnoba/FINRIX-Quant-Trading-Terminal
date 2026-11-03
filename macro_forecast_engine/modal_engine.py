@@ -35,7 +35,7 @@ APP_NAME = "xauusd-macro-quant-forecast"
 if modal is not None:
     image = modal.Image.debian_slim(python_version="3.11").pip_install(
         "neuralforecast==1.7.5", "transformers", "torch", "yfinance", "requests", "pandas", "numpy",
-        "scikit-learn"
+        "scikit-learn", "rich", "questionary"
     ).add_local_python_source(
         "macro_forecast_engine"
     )
