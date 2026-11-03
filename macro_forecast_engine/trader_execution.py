@@ -6,6 +6,10 @@ from typing import Any
 
 import numpy as np
 
+PIP_SIZE = 1.0
+STOP_BUFFER_PIPS = 15
+MAX_LOCAL_STRUCTURE_DISTANCE = 0.02
+
 
 def build_execution_plan(
     entry: float,
@@ -23,18 +27,35 @@ def build_execution_plan(
     highs = np.array([float(row["expected_high_q90"]) for row in forecast])
     fvg = smc.get("fair_value_gaps", [{}])[0]
     liquidity = smc.get("liquidity_pools", {})
+    buffer = PIP_SIZE * STOP_BUFFER_PIPS
     if bullish:
-        structural_stop = min(float(fvg.get("low", entry)), float(liquidity.get("ssl", entry)))
-        stop = min(entry * 0.999, structural_stop, float(lows[0]))
-        targets = [float(np.quantile(mids, quantile)) for quantile in (0.25, 0.5, 0.75)]
+        local_levels = [
+            float(fvg.get("low", entry)),
+            float(liquidity.get("ssl", entry)),
+        ]
+        structural_stop = min(
+            (level for level in local_levels
+             if entry * (1.0 - MAX_LOCAL_STRUCTURE_DISTANCE) <= level < entry),
+            default=entry,
+        )
+        stop = min(entry - buffer, structural_stop - buffer if structural_stop < entry else entry - buffer)
+        targets = [float(np.quantile(mids, quantile)) for quantile in (0.75, 0.5, 0.25)]
         targets = [max(entry, target) for target in targets]
     else:
-        structural_stop = max(float(fvg.get("high", entry)), float(liquidity.get("bsl", entry)))
-        stop = max(entry * 1.001, structural_stop, float(highs[0]))
-        targets = [float(np.quantile(mids, quantile)) for quantile in (0.25, 0.5, 0.75)]
+        local_levels = [
+            float(fvg.get("high", entry)),
+            float(liquidity.get("bsl", entry)),
+        ]
+        structural_stop = max(
+            (level for level in local_levels
+             if entry < level <= entry * (1.0 + MAX_LOCAL_STRUCTURE_DISTANCE)),
+            default=entry,
+        )
+        stop = max(entry + buffer, structural_stop + buffer if structural_stop > entry else entry + buffer)
+        targets = [float(np.quantile(mids, quantile)) for quantile in (0.75, 0.5, 0.25)]
         targets = [min(entry, target) for target in targets]
     risk_distance = abs(entry - stop)
-    reward_distance = abs(targets[2] - entry)
+    reward_distance = abs(targets[0] - entry)
     return {
         "side": "long" if bullish else "short",
         "entry_zone": [round(min(entry, float(lows[0])), 4), round(max(entry, float(highs[0])), 4)],

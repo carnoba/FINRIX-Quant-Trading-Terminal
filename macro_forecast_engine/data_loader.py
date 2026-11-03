@@ -123,19 +123,14 @@ def fetch_cot_data() -> pd.DataFrame:
 
 
 GOLD_NEWS_FEEDS: tuple[tuple[str, str], ...] = (
-    ("federal_reserve", "https://www.federalreserve.gov/feeds/press_all.xml"),
-    ("bls", "https://www.bls.gov/feed/bls_latest.rss"),
-    ("treasury", "https://home.treasury.gov/news/press-releases/rss.xml"),
-    ("world_gold_council", "https://www.gold.org/rss/news"),
+    ("forexlive_gold", "https://www.forexlive.com/feed/news"),
+    ("investing_commodities", "https://www.investing.com/rss/commodities.rss"),
+    ("marketwatch_macro", "https://feeds.marketwatch.com/marketwatch/marketpulse/"),
 )
 GOLD_MACRO_KEYWORDS = re.compile(
     r"\b("
-    r"gold|xau|bullion|precious metals?|commodity|commodities|"
-    r"federal reserve|fed\b|fomc|rate decision|interest rate|"
-    r"cpi|ppi|inflation|consumer price|producer price|"
-    r"dxy|dollar index|us dollar|treasury yield|bond yield|"
-    r"10-year|10y yield|central bank.{0,30}gold|gold reserves?|"
-    r"geopolit|sanction|war|conflict|red sea|ukraine|middle east"
+    r"gold|xauusd|fomc rate|cpi|inflation|non[- ]farm payrolls?|"
+    r"dxy|yields?"
     r")\b",
     re.IGNORECASE,
 )
@@ -178,14 +173,20 @@ def score_headlines(headlines: Iterable[Any], model_name: str = "ProsusAI/finber
         for output in classifier(texts, truncation=True, max_length=256):
             labels = output if isinstance(output, list) else [output]
             scores = {str(item["label"]).lower(): float(item["score"]) for item in labels}
-            positive = scores.get("positive", 0.0)
-            negative = scores.get("negative", 0.0)
+            positive = scores.get("positive", scores.get("bullish", 0.0))
+            negative = scores.get("negative", scores.get("bearish", 0.0))
             neutral = scores.get("neutral", 0.0)
             values.append((positive - negative) * (1.0 - 0.25 * neutral))
         return float(np.mean(values)) if values else float("nan")
     except (ImportError, OSError, RuntimeError, ValueError):
-        bullish = re.compile(r"\b(weak dollar|lower yield|rate cut|dovish|recession|uncertainty|war|sanction)\b", re.I)
-        bearish = re.compile(r"\b(strong dollar|higher yield|rate hike|hawkish|hot inflation|cpi rises|ppi rises)\b", re.I)
+        bullish = re.compile(
+            r"\b(weak dollar|dollar falls?|dxy falls?|lower yield|rate cut|"
+            r"dovish|recession|uncertainty|gold rises?)\b", re.I,
+        )
+        bearish = re.compile(
+            r"\b(strong dollar|dollar rises?|dxy rises?|higher yield|yields? rise|"
+            r"rate hike|hawkish|hot inflation|cpi rises|ppi rises|payrolls beat)\b", re.I,
+        )
         values = []
         for text in texts:
             positive = len(bullish.findall(text))

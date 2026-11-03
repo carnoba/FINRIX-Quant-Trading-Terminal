@@ -65,7 +65,15 @@ def choose(message: str, choices: list[str]) -> str:
 def choose_many(message: str, choices: list[str]) -> list[str]:
     if questionary is not None:
         selected = questionary.checkbox(message, choices=choices).ask()
-        return selected or choices[:1]
+        selected = selected or choices[:1]
+        normalized: list[str] = []
+        for item in selected:
+            value = getattr(item, "value", item)
+            title = getattr(item, "title", value)
+            candidate = value if value in choices else title
+            if candidate in choices and candidate not in normalized:
+                normalized.append(candidate)
+        return normalized or choices[:1]
     console.print("\n".join(f"{i}. {value}" for i, value in enumerate(choices, 1)))
     raw = ask(f"{message} (comma-separated numbers)", "1")
     selected: list[str] = []
@@ -176,8 +184,13 @@ def show_forecast(payload: dict[str, Any]) -> None:
 def today_signal() -> None:
     payload = run_forecast("daily", force=False)
     equity = float(ask("Account equity ($)", "100000"))
+    entry_zone = payload["risk_levels"]["entry_zone"]
+    entry = float(entry_zone[0] if payload["directional_bias"] == "bullish" else entry_zone[1])
+    payload["risk_levels"] = build_execution_plan(
+        entry, payload["forecast"], payload["smc"], payload["directional_bias"],
+    )
     sizing = size_position(
-        payload["risk_levels"]["entry_zone"][1],
+        entry,
         payload["forecast"][0]["expected_low_q10"],
         payload["forecast"][0]["target_q50"],
         payload["forecast"][0]["expected_high_q90"],
@@ -197,7 +210,8 @@ def news_report() -> None:
     table.add_column("Value")
     table.add_row("Headlines", str(len(news)))
     table.add_row("Hawkish / Dovish Score", f"{sentiment:+.4f}" if not pd.isna(sentiment) else "unavailable")
-    table.add_row("Bias", "DOVISH" if sentiment > 0.05 else "HAWKISH" if sentiment < -0.05 else "UNAVAILABLE")
+    table.add_row("Bias", "BULLISH" if sentiment > 0.05 else "BEARISH"
+                  if sentiment < -0.05 else "NEUTRAL")
     table.add_row("Sentiment Velocity", f"{sentiment_data['velocity']:+.4f}"
                   if not pd.isna(sentiment_data["velocity"]) else "unavailable")
     console.print(table)
@@ -227,6 +241,10 @@ def execution_lookup() -> None:
 def backtester() -> None:
     strategies = choose_many("Select strategies to test", list(STRATEGIES))
     timeframes = choose_many("Select timeframes to test", ["1m", "5m", "15m", "1h", "4h", "1D"])
+    console.print(
+        f"[green]Selected strategies:[/green] {', '.join(strategies)}\n"
+        f"[green]Selected timeframes:[/green] {', '.join(timeframes)}"
+    )
     from macro_forecast_engine.data_loader import fetch_market_data
     with console.status("[green]Loading historical XAUUSD data...[/green]"):
         frames = []
