@@ -269,6 +269,7 @@ def _run_worker(
     fred_api_key: str = "",
     account_equity: float = 100_000.0,
     risk_per_trade_pct: float = 1.0,
+    local_trend: bool = False,
 ) -> dict[str, Any]:
     if mode not in HORIZONS:
         raise ValueError(f"mode must be one of {', '.join(HORIZONS)}")
@@ -281,15 +282,42 @@ def _run_worker(
     news = fetch_live_news()
     features = build_feature_frame(market, macro, cot, news)
     forecast, training = _quantile_forecast(features, HORIZONS[mode])
+    local_bias = None
+    local_confidence = None
+    if local_trend:
+        log_returns = np.log1p(features["gold_return"].dropna()).tail(120)
+        weighted_drift = float(log_returns.ewm(span=20, adjust=False).mean().iloc[-1])
+        if abs(weighted_drift) < 1e-7:
+            log_prices = np.log(features["gold_close"].tail(60))
+            weighted_drift = float(log_prices.diff().ewm(span=20, adjust=False).mean().iloc[-1])
+        weighted_drift = float(np.clip(weighted_drift, -0.003, 0.003))
+        local_bias = "bullish" if weighted_drift > 0 else "bearish" if weighted_drift < 0 else "neutral"
+        local_confidence = round(float(np.clip(
+            50.0 + abs(weighted_drift) * 8000.0, 50.0, 74.0,
+        )), 2)
+        last_price = float(features["gold_close"].iloc[-1])
+        steps = np.arange(1, len(forecast) + 1)
+        trend_median = last_price * np.exp(weighted_drift * steps)
+        local_volatility = max(float(log_returns.std()), 0.002)
+        forecast["q0.5"] = trend_median
+        forecast["q0.1"] = trend_median * np.exp(-1.2816 * local_volatility * np.sqrt(steps))
+        forecast["q0.9"] = trend_median * np.exp(1.2816 * local_volatility * np.sqrt(steps))
     mc = _monte_carlo(float(features["gold_close"].iloc[-1]), forecast, features["gold_return"])
+    if local_trend and local_bias is not None and local_confidence is not None:
+        mc["directional_bias"] = local_bias
+        mc["confidence_score"] = local_confidence
     smc = _smc(features)
     rows = []
     for index, row in forecast.iterrows():
         probability = mc["probability_bullish_by_day"][len(rows)]
+        signal_bias = (
+            local_bias if local_trend and local_bias is not None
+            else "bullish" if probability > 0.55 else "bearish" if probability < 0.45 else "neutral"
+        )
         rows.append({"date": index.date().isoformat(), "target_q50": round(float(row["q0.5"]), 4),
                      "expected_low_q10": round(float(row["q0.1"]), 4),
                      "expected_high_q90": round(float(row["q0.9"]), 4),
-                     "signal_bias": "bullish" if probability > 0.55 else "bearish" if probability < 0.45 else "neutral"})
+                     "signal_bias": signal_bias})
     milestones = {f"Q{q}": rows[min(len(rows) - 1, q * len(rows) // 4 - 1)]["target_q50"]
                   for q in range(1, 5)} if mode == "yearly" else {
                       f"week_{q}": rows[min(len(rows) - 1, q * 5 - 1)]["target_q50"]

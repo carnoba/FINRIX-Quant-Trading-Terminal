@@ -34,6 +34,7 @@ def main() -> None:
             fred_api_key,
             account_equity=args.account_equity,
             risk_per_trade_pct=args.risk_per_trade_pct,
+            local_trend=True,
         )
         payload["execution_environment"] = "Local CPU"
         payload["confidence_score"] = round(float(np.clip(
