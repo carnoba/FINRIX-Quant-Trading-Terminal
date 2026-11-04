@@ -28,7 +28,15 @@ def build_execution_plan(
     fvg = smc.get("fair_value_gaps", [{}])[0]
     liquidity = smc.get("liquidity_pools", {})
     buffer = PIP_SIZE * STOP_BUFFER_PIPS
-    if bullish:
+    neutral = bias.lower() not in {"bullish", "bearish"}
+    if neutral:
+        ssl = float(liquidity.get("ssl", entry))
+        bsl = float(liquidity.get("bsl", entry))
+        lower_spacing = float(np.clip(abs(entry - ssl), 15.0, 25.0))
+        upper_spacing = float(np.clip(abs(bsl - entry), 15.0, 25.0))
+        targets = [entry - lower_spacing, entry, entry + upper_spacing]
+        stop = entry
+    elif bullish:
         local_levels = [
             float(fvg.get("low", entry)),
             float(liquidity.get("ssl", entry)),
@@ -65,7 +73,8 @@ def build_execution_plan(
         "take_profit_3": round(targets[2], 4),
         "risk_distance": round(risk_distance, 4),
         "reward_distance": round(reward_distance, 4),
-        "risk_reward": round(reward_distance / max(risk_distance, 1e-9), 4),
+        "risk_reward": round(reward_distance / max(risk_distance, 1e-9), 4)
+        if not neutral else 0.0,
         "trailing_stop": {
             "activation": round(targets[0], 4),
             "distance": round(abs(targets[0] - stop), 4),

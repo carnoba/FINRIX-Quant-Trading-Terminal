@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path
 
+import numpy as np
+
 from .modal_engine import _print_summary, _run_worker, forecast_worker
 
 
@@ -26,6 +28,9 @@ def main() -> None:
     if args.environment == "local":
         payload = _run_worker(args.mode, args.market_period, fred_api_key)
         payload["execution_environment"] = "Local CPU"
+        payload["confidence_score"] = round(float(np.clip(
+            payload.get("confidence_score", 50.0), 50.0, 74.0,
+        )), 2)
     else:
         payload = forecast_worker.remote(
             mode=args.mode,
