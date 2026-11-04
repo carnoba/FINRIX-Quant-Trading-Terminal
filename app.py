@@ -44,6 +44,12 @@ CONFIG = load_config(CONFIG_PATH)
 console = Console()
 
 
+def refresh_config() -> dict[str, Any]:
+    global CONFIG
+    CONFIG = load_config(CONFIG_PATH)
+    return CONFIG
+
+
 def clear_screen() -> None:
     os.system("cls" if os.name == "nt" else "clear")
 
@@ -91,6 +97,7 @@ def choose_many(message: str, choices: list[str]) -> list[str]:
 
 
 def banner() -> None:
+    refresh_config()
     clear_screen()
     art = Text(
         "+--------------------------------------------------------------+\n"
@@ -121,27 +128,41 @@ def artifact_path(mode: str) -> Path:
 
 
 def run_forecast(mode: str, force: bool = True) -> dict[str, Any]:
+    refresh_config()
     path = artifact_path(mode)
     if not force and path.exists():
-        age_seconds = pd.Timestamp.now().timestamp() - path.stat().st_mtime
-        if age_seconds < 900:
-            return json.loads(path.read_text(encoding="utf-8"))
+        try:
+            cached = json.loads(path.read_text(encoding="utf-8"))
+            age_seconds = pd.Timestamp.now().timestamp() - path.stat().st_mtime
+            expected_environment = (
+                "Modal GPU A10G" if CONFIG["execution_environment"] == "modal"
+                else "Local CPU"
+            )
+            if age_seconds < 900 and cached.get("execution_environment") == expected_environment:
+                return cached
+        except (OSError, json.JSONDecodeError):
+            pass
     if CONFIG["execution_environment"] == "modal":
         command = [sys.executable, "-m", "modal", "run",
                    "macro_forecast_engine/modal_engine.py", "--mode", mode]
-        status_text = f"Running {mode} forecast on Modal A10G..."
+        status_text = f"☁️ Running {mode} forecast on Modal A10G Cloud GPU..."
+        error_title = "Modal Forecast Error"
     else:
         command = [sys.executable, "-m", "macro_forecast_engine.run_engine",
                    "--mode", mode, "--environment", "local", "--output", str(path)]
-        status_text = f"Running {mode} forecast on local CPU..."
+        status_text = f"⚡ Running {mode} forecast on Local CPU (Python Engine)..."
+        error_title = "Local Forecast Error"
     environment = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     with console.status(f"[green]{status_text}[/green]"):
         completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True,
                                    encoding="utf-8", errors="replace", env=environment)
     if completed.returncode != 0:
         console.print(Panel("[ERR] " + completed.stdout + completed.stderr,
-                            title="Modal Error", border_style="red", box=box.ASCII))
-        raise RuntimeError(f"Modal forecast failed with exit code {completed.returncode}")
+                            title=error_title, border_style="red", box=box.ASCII))
+        raise RuntimeError(
+            f"{CONFIG['execution_environment']} forecast failed with exit code "
+            f"{completed.returncode}"
+        )
     if not path.exists():
         raise FileNotFoundError(f"Forecast artifact was not created: {path}")
     return json.loads(path.read_text(encoding="utf-8"))
@@ -168,9 +189,13 @@ def print_execution_card(payload: dict[str, Any], equity: float) -> None:
 
 
 def show_forecast(payload: dict[str, Any]) -> None:
+    refresh_config()
+    environment = "MODAL GPU" if CONFIG["execution_environment"] == "modal" else "LOCAL CPU"
     console.print(Panel(
         f"[bold green]{payload['mode'].capitalize()}[/bold green] | "
         f"{payload['data']['horizon']} business days | "
+        f"Engine: {environment} | Equity: ${CONFIG['account_equity']:,.2f} | "
+        f"Risk: {CONFIG['risk_per_trade_pct']:.2f}%\n"
         f"Bias: {payload['directional_bias'].upper()} "
         f"({payload['confidence_score']:.2f}%)\n"
         f"Target: ${payload['monte_carlo']['target_price']:,.4f}  "
@@ -195,6 +220,7 @@ def show_forecast(payload: dict[str, Any]) -> None:
 
 
 def today_signal() -> None:
+    refresh_config()
     payload = run_forecast("daily", force=False)
     equity = CONFIG["account_equity"]
     entry_zone = payload["risk_levels"]["entry_zone"]
@@ -239,6 +265,7 @@ def news_report() -> None:
 
 
 def execution_lookup() -> None:
+    refresh_config()
     payload = run_forecast("daily")
     price = float(ask("Current market price ($)", str(payload["forecast"][0]["target_q50"])))
     equity = CONFIG["account_equity"]
@@ -257,6 +284,7 @@ def execution_lookup() -> None:
 
 
 def backtester() -> None:
+    refresh_config()
     strategies = choose_many("Select strategies to test", list(STRATEGIES))
     timeframes = choose_many("Select timeframes to test", ["1m", "5m", "15m", "1h", "4h", "1D"])
     console.print(
@@ -285,6 +313,10 @@ def backtester() -> None:
                       profit_factor, f"{row['max_drawdown']:.2f}",
                       f"{row['sharpe_ratio']:.2f}", f"{row['net_expected_return']:.2f}")
     console.print(table)
+    console.print(
+        f"[green]Account equity:[/green] ${CONFIG['account_equity']:,.2f} | "
+        f"[green]Risk per trade:[/green] {CONFIG['risk_per_trade_pct']:.2f}%"
+    )
 
 
 def _historical_log_return_forecast(history: pd.Series, horizon: int) -> list[float]:
@@ -297,6 +329,7 @@ def _historical_log_return_forecast(history: pd.Series, horizon: int) -> list[fl
 
 
 def ensemble() -> None:
+    refresh_config()
     proceed = ask(
         "[WARNING] Parallel multi-strategy backtesting on Modal A10G consumes cloud credits. "
         "Proceed? (Y/N)", "N",
@@ -329,6 +362,10 @@ def ensemble() -> None:
     console.print(table)
     console.print(Panel(f"[bold green]Recommended strategy: {report['recommendation']}[/bold green]",
                         border_style="green"))
+    console.print(
+        f"[green]Account equity:[/green] ${CONFIG['account_equity']:,.2f} | "
+        f"[green]Risk per trade:[/green] {CONFIG['risk_per_trade_pct']:.2f}%"
+    )
 
 
 def setup_guide() -> None:
@@ -338,6 +375,7 @@ def setup_guide() -> None:
 
 def settings_menu() -> None:
     global CONFIG
+    refresh_config()
     while True:
         current_engine = "Modal Cloud GPU" if CONFIG["execution_environment"] == "modal" else "Local Machine"
         choice = choose("FINRIX System Settings", [

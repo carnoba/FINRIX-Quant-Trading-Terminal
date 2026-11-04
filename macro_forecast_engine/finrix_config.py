@@ -20,7 +20,7 @@ def load_config(path: Path) -> dict[str, Any]:
     config = dict(DEFAULT_CONFIG)
     if path.exists():
         try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
+            loaded = json.loads(path.read_text(encoding="utf-8-sig"))
             if isinstance(loaded, dict):
                 config.update(loaded)
         except (OSError, json.JSONDecodeError):

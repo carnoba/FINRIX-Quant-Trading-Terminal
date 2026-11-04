@@ -25,6 +25,7 @@ def main() -> None:
     fred_api_key = os.getenv("FRED_API_KEY", "").strip()
     if args.environment == "local":
         payload = _run_worker(args.mode, args.market_period, fred_api_key)
+        payload["execution_environment"] = "Local CPU"
     else:
         payload = forecast_worker.remote(
             mode=args.mode,
