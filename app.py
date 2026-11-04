@@ -375,7 +375,13 @@ def ensemble() -> None:
     if not path.exists():
         raise FileNotFoundError(f"Ensemble artifact was not created: {path}")
     report = json.loads(path.read_text(encoding="utf-8-sig"))
-    table = Table(title="Modal A10G Top 5 Strategy Leaderboard", box=box.ASCII)
+    environment = CONFIG["execution_environment"]
+    table_title = (
+        "Modal A10G Top 5 Strategy Leaderboard"
+        if environment == "modal"
+        else "Local CPU Top 5 Strategy Leaderboard"
+    )
+    table = Table(title=table_title, box=box.ASCII)
     table.add_column("Rank", justify="right")
     table.add_column("Strategy / Timeframe", style="green")
     table.add_column("Win Rate %", justify="right")
