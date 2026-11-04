@@ -114,8 +114,9 @@ def _strategy_signal(prices: pd.Series, strategy: str,
     if strategy == "ADX + DI Trend Classifier":
         period = int(adx["period"])
         movement = prices.diff()
-        strength = movement.abs().ewm(alpha=1 / period, adjust=False).mean()
-        adx_value = strength / prices.ewm(alpha=1 / period, adjust=False).mean() * 100
+        true_range = movement.abs().ewm(alpha=1 / period, adjust=False).mean()
+        directional = movement.ewm(alpha=1 / period, adjust=False).mean().abs()
+        adx_value = (directional / true_range.replace(0, np.nan) * 100).fillna(0.0)
         return np.sign(movement).where(adx_value >= adx["threshold"], 0.0)
     if strategy == "Ichimoku Cloud Kumo Breakout":
         tenkan = int(ichimoku["tenkan"])
@@ -160,24 +161,53 @@ def backtest_strategy(prices: pd.Series, strategy: str, timeframe: str,
         raise ValueError(f"Not enough {timeframe} observations for {strategy}")
     params = indicator_params or load_indicator_params()
     signal = pd.Series(_strategy_signal(series, strategy, params), index=series.index).shift(1).fillna(0.0)
-    returns = series.pct_change().fillna(0.0)
-    strategy_returns = (signal * returns).replace([np.inf, -np.inf], np.nan).fillna(0.0)
-    equity = (1.0 + strategy_returns).cumprod()
-    wins = strategy_returns[strategy_returns > 0]
-    losses = strategy_returns[strategy_returns < 0]
+    prices_delta = series.diff().fillna(0.0)
+    atr_period = int(params["atr"]["period"])
+    stop_distance = _atr(series, atr_period).shift(1)
+    fallback_distance = series.shift(1).abs() * 0.001
+    stop_distance = stop_distance.fillna(fallback_distance).clip(lower=0.01)
+    pip_size = 0.01
+    pip_value = 1.0
+    current_equity = max(float(account_equity), 0.01)
+    starting_equity = current_equity
+    equity_values = [current_equity]
+    trade_pnls: list[float] = []
+    trade_lots: list[float] = []
+    for direction, price_change, distance in zip(
+        signal.to_numpy(), prices_delta.to_numpy(), stop_distance.to_numpy(),
+    ):
+        if not direction or not np.isfinite(price_change) or not np.isfinite(distance):
+            equity_values.append(current_equity)
+            continue
+        risk_dollars = current_equity * max(float(risk_per_trade_pct), 0.0) / 100.0
+        stop_pips = max(float(distance) / pip_size, 1.0)
+        lot_size = risk_dollars / (stop_pips * pip_value)
+        pip_change = float(price_change) / pip_size
+        trade_pnl = float(direction) * lot_size * pip_change * pip_value
+        current_equity = max(current_equity + trade_pnl, 0.01)
+        trade_pnls.append(trade_pnl)
+        trade_lots.append(lot_size)
+        equity_values.append(current_equity)
+    equity = pd.Series(equity_values, index=range(len(equity_values)))
+    trade_returns = pd.Series(trade_pnls, dtype=float)
+    wins = trade_returns[trade_returns > 0]
+    losses = trade_returns[trade_returns < 0]
     drawdown = equity / equity.cummax() - 1.0
+    strategy_returns = equity.pct_change().fillna(0.0)
     periods = TIMEFRAME_PERIODS.get(timeframe, 252)
     volatility = float(strategy_returns.std())
     return {
         "strategy": strategy, "timeframe": timeframe, "observations": float(len(series)),
-        "win_rate": float((strategy_returns > 0).mean() * 100),
+        "win_rate": float((trade_returns > 0).mean() * 100) if not trade_returns.empty else 0.0,
         "profit_factor": float(wins.sum() / abs(losses.sum())) if not losses.empty else float("inf"),
         "max_drawdown": float(abs(drawdown.min()) * 100),
         "sharpe_ratio": float(strategy_returns.mean() / volatility * np.sqrt(periods))
         if volatility > 0 else 0.0,
-        "net_expected_return": float((equity.iloc[-1] - 1.0) * 100),
+        "net_expected_return": float((current_equity - starting_equity) / starting_equity * 100.0),
         "account_equity": float(account_equity),
         "risk_per_trade_pct": float(risk_per_trade_pct),
+        "final_equity": float(current_equity),
+        "average_lot_size": float(np.mean(trade_lots)) if trade_lots else 0.0,
     }
 
 
