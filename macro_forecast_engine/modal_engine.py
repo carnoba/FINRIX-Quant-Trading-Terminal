@@ -40,6 +40,10 @@ except ImportError:  # pragma: no cover
     modal = None
 
 APP_NAME = "xauusd-macro-quant-forecast"
+MIN_GOLD_PRICE = 2500.0
+MAX_GOLD_PRICE = 6500.0
+MAX_ANNUALIZED_VOLATILITY = 0.35
+VOLATILITY_MEAN_REVERSION = 0.92
 if modal is not None:
     image = modal.Image.debian_slim(python_version="3.11").pip_install(
         "neuralforecast==1.7.5", "transformers", "torch", "yfinance", "requests", "pandas", "numpy",
@@ -68,6 +72,8 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
     returns = np.log1p(features["gold_return"].dropna()).tail(252)
     drift = float(returns.mean()) if not returns.empty else 0.0
     volatility = max(float(returns.std()), 0.002)
+    if horizon >= 252:
+        volatility = min(volatility, MAX_ANNUALIZED_VOLATILITY / np.sqrt(252.0))
     steps = np.arange(1, horizon + 1)
     median_returns = np.full(horizon, drift)
     prices = _returns_to_prices(last_price, median_returns)
@@ -75,6 +81,13 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
     result["q0.5"] = prices
     result["q0.1"] = last_price * np.exp(drift * steps - 1.2816 * volatility * np.sqrt(steps))
     result["q0.9"] = last_price * np.exp(drift * steps + 1.2816 * volatility * np.sqrt(steps))
+    floor = max(MIN_GOLD_PRICE, last_price * 0.55)
+    ceiling = min(MAX_GOLD_PRICE, last_price * 1.60)
+    result["q0.1"] = result["q0.1"].clip(lower=floor, upper=ceiling)
+    result["q0.5"] = result["q0.5"].clip(lower=floor, upper=ceiling)
+    result["q0.9"] = result["q0.9"].clip(lower=floor, upper=ceiling)
+    result["q0.1"] = np.minimum(result["q0.1"], result["q0.5"])
+    result["q0.9"] = np.maximum(result["q0.9"], result["q0.5"])
     diagnostics: dict[str, Any] = {
         "model_used": "calibrated_fallback",
         "train_loss": None,
@@ -215,27 +228,48 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
             result["q0.9"] = _returns_to_prices(last_price, ordered_returns[:, 2])
     except (AttributeError, ImportError, OSError, RuntimeError, ValueError, KeyError, TypeError) as error:
         diagnostics["fallback_reason"] = f"{type(error).__name__}: {error}"
+    result["q0.1"] = result["q0.1"].clip(lower=floor, upper=ceiling)
+    result["q0.5"] = result["q0.5"].clip(lower=floor, upper=ceiling)
+    result["q0.9"] = result["q0.9"].clip(lower=floor, upper=ceiling)
+    result["q0.1"] = np.minimum(result["q0.1"], result["q0.5"])
+    result["q0.9"] = np.maximum(result["q0.9"], result["q0.5"])
     return result, diagnostics
 
 
 def _monte_carlo(last_price: float, forecast: pd.DataFrame,
                  historical_returns: pd.Series, simulations: int = 100_000) -> dict[str, Any]:
     volatility = max(float(historical_returns.dropna().tail(252).std()), 1e-5)
+    horizon = len(forecast)
+    annualized_volatility = min(volatility * np.sqrt(252.0), MAX_ANNUALIZED_VOLATILITY)
+    step_volatility = annualized_volatility / np.sqrt(252.0)
+    floor = max(MIN_GOLD_PRICE, last_price * 0.55)
+    ceiling = min(MAX_GOLD_PRICE, last_price * 1.60)
     try:
         import torch
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         generator = torch.Generator(device=device).manual_seed(42)
         base = torch.tensor(forecast["q0.5"].to_numpy(), device=device, dtype=torch.float32)
-        shocks = torch.randn((simulations, len(base)), generator=generator, device=device) * volatility
-        paths = base.unsqueeze(0) * torch.exp(torch.cumsum(shocks, dim=1))
+        shocks = torch.randn((simulations, horizon), generator=generator, device=device) * step_volatility
+        deviations = torch.zeros_like(shocks)
+        for step in range(horizon):
+            previous = deviations[:, step - 1] if step else 0.0
+            deviations[:, step] = VOLATILITY_MEAN_REVERSION * previous + shocks[:, step]
+        paths = base.unsqueeze(0) * torch.exp(deviations)
+        paths = torch.clamp(paths, min=floor, max=ceiling)
         terminal = paths[:, -1]
         probability = (paths > last_price).float().mean(dim=0).cpu().numpy()
         terminal_np = terminal.cpu().numpy()
     except (ImportError, RuntimeError):
         rng = np.random.default_rng(42)
-        shocks = rng.normal(0.0, volatility, (simulations, len(forecast)))
-        terminal_np = (forecast["q0.5"].to_numpy()[None, :] * np.exp(np.cumsum(shocks, axis=1)))[:, -1]
-        probability = (terminal_np[:, None] > last_price).mean(axis=0)
+        shocks = rng.normal(0.0, step_volatility, (simulations, horizon))
+        deviations = np.zeros_like(shocks)
+        for step in range(horizon):
+            previous = deviations[:, step - 1] if step else 0.0
+            deviations[:, step] = VOLATILITY_MEAN_REVERSION * previous + shocks[:, step]
+        paths = forecast["q0.5"].to_numpy()[None, :] * np.exp(deviations)
+        paths = np.clip(paths, floor, ceiling)
+        terminal_np = paths[:, -1]
+        probability = (paths > last_price).mean(axis=0)
     bullish_probability = float(probability[-1])
     bias = "bullish" if bullish_probability > 0.55 else "bearish" if bullish_probability < 0.45 else "neutral"
     confidence = bullish_probability if bias == "bullish" else 1 - bullish_probability if bias == "bearish" else 1 - abs(0.5 - bullish_probability) * 2
@@ -243,7 +277,7 @@ def _monte_carlo(last_price: float, forecast: pd.DataFrame,
     return {
         "target_price": round(float(np.median(terminal_np)), 4),
         "target_low": round(float(low), 4), "target_high": round(float(high), 4),
-        "volatility": round(volatility, 8), "directional_bias": bias,
+        "volatility": round(annualized_volatility, 8), "directional_bias": bias,
         "confidence_score": round(confidence * 100, 2), "simulations": simulations,
         "probability_bullish_by_day": [round(float(value), 6) for value in probability],
         "drawdown_probability": round(float((terminal_np < last_price * 0.97).mean() * 100), 2),
