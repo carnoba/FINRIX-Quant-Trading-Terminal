@@ -1,4 +1,4 @@
-"""Interactive Rich terminal for the XAUUSD macro forecast engine."""
+"""FINRIX interactive Rich terminal for the XAUUSD macro forecast engine."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
 
 from macro_forecast_engine.data_loader import fetch_live_news
 from macro_forecast_engine.data_processor import analyze_news_sentiment
+from macro_forecast_engine.finrix_config import load_config, save_config
 from macro_forecast_engine.trader_execution import build_execution_plan
 from macro_forecast_engine.trader_risk import size_position
 from macro_forecast_engine.trader_timemachine import (
@@ -38,6 +39,8 @@ from macro_forecast_engine.trader_timemachine import (
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
+CONFIG_PATH = DATA_DIR / "finrix_config.json"
+CONFIG = load_config(CONFIG_PATH)
 console = Console()
 
 
@@ -91,7 +94,7 @@ def banner() -> None:
     clear_screen()
     art = Text(
         "+--------------------------------------------------------------+\n"
-        "|     INSTITUTIONAL QUANT TRADING TERMINAL (XAUUSD)          |\n"
+        "|          FINRIX QUANT TRADING TERMINAL (XAUUSD)            |\n"
         "+--------------------------------------------------------------+",
         style="bold green",
     )
@@ -100,7 +103,11 @@ def banner() -> None:
     status.add_column(style="green")
     status.add_column()
     status.add_row("SYSTEM", "[bold green]ONLINE[/bold green]")
-    status.add_row("MODAL GPU", "[bold green]A10G worker connected on demand[/bold green]")
+    environment = CONFIG["execution_environment"]
+    status.add_row("EXECUTION", "[bold green]MODAL GPU (A10G)[/bold green]"
+                   if environment == "modal" else "[bold green]LOCAL CPU[/bold green]")
+    status.add_row("DEFAULT EQUITY", f"${CONFIG['account_equity']:,.2f}")
+    status.add_row("RISK / TRADE", f"{CONFIG['risk_per_trade_pct']:.2f}%")
     status.add_row("ACTIVE SKILLS", "TFT | SMC | FinBERT | Kelly | Volatility Parity | Timemachine")
     status.add_row("DATA ROOT", str(DATA_DIR))
     console.print(Panel(status, title="Terminal Status", border_style="green"))
@@ -119,10 +126,16 @@ def run_forecast(mode: str, force: bool = True) -> dict[str, Any]:
         age_seconds = pd.Timestamp.now().timestamp() - path.stat().st_mtime
         if age_seconds < 900:
             return json.loads(path.read_text(encoding="utf-8"))
-    command = [sys.executable, "-m", "modal", "run", "macro_forecast_engine/modal_engine.py",
-               "--mode", mode]
+    if CONFIG["execution_environment"] == "modal":
+        command = [sys.executable, "-m", "modal", "run",
+                   "macro_forecast_engine/modal_engine.py", "--mode", mode]
+        status_text = f"Running {mode} forecast on Modal A10G..."
+    else:
+        command = [sys.executable, "-m", "macro_forecast_engine.run_engine",
+                   "--mode", mode, "--environment", "local", "--output", str(path)]
+        status_text = f"Running {mode} forecast on local CPU..."
     environment = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    with console.status(f"[green]Running {mode} forecast on Modal A10G...[/green]"):
+    with console.status(f"[green]{status_text}[/green]"):
         completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True,
                                    encoding="utf-8", errors="replace", env=environment)
     if completed.returncode != 0:
@@ -183,7 +196,7 @@ def show_forecast(payload: dict[str, Any]) -> None:
 
 def today_signal() -> None:
     payload = run_forecast("daily", force=False)
-    equity = float(ask("Account equity ($)", "100000"))
+    equity = CONFIG["account_equity"]
     entry_zone = payload["risk_levels"]["entry_zone"]
     entry = float(entry_zone[0] if payload["directional_bias"] == "bullish" else entry_zone[1])
     payload["risk_levels"] = build_execution_plan(
@@ -195,6 +208,9 @@ def today_signal() -> None:
         payload["forecast"][0]["target_q50"],
         payload["forecast"][0]["expected_high_q90"],
         equity,
+        risk_fraction=CONFIG["risk_per_trade_pct"] / 100.0,
+        kelly_fraction=0.25,
+        micro_lot_floor=CONFIG["micro_lot_floor"],
     )
     payload["position_sizing"] = sizing
     print_execution_card(payload, equity)
@@ -225,13 +241,15 @@ def news_report() -> None:
 def execution_lookup() -> None:
     payload = run_forecast("daily")
     price = float(ask("Current market price ($)", str(payload["forecast"][0]["target_q50"])))
-    equity = float(ask("Account equity ($)", "100000"))
-    risk_percent = float(ask("Risk per trade (%)", "1.0"))
+    equity = CONFIG["account_equity"]
+    risk_percent = CONFIG["risk_per_trade_pct"]
     plan = build_execution_plan(price, payload["forecast"], payload["smc"], payload["directional_bias"])
     row = payload["forecast"][0]
     sizing = size_position(price, row["expected_low_q10"], row["target_q50"],
                            row["expected_high_q90"], equity,
-                           risk_fraction=max(0.0, risk_percent) / 100.0)
+                           risk_fraction=max(0.0, risk_percent) / 100.0,
+                           kelly_fraction=0.25,
+                           micro_lot_floor=CONFIG["micro_lot_floor"])
     sizing["pip_risk"] = round(abs(price - plan["stop_loss"]) / 0.01, 2)
     payload["risk_levels"] = plan
     payload["position_sizing"] = sizing
@@ -318,6 +336,42 @@ def setup_guide() -> None:
     console.print(Markdown(readme.read_text(encoding="utf-8")))
 
 
+def settings_menu() -> None:
+    global CONFIG
+    while True:
+        current_engine = "Modal Cloud GPU" if CONFIG["execution_environment"] == "modal" else "Local Machine"
+        choice = choose("FINRIX System Settings", [
+            f"[1] Toggle Execution Engine (Current: {current_engine})",
+            f"[2] Set Default Account Equity (${CONFIG['account_equity']:,.2f})",
+            f"[3] Set Default Risk Per Trade ({CONFIG['risk_per_trade_pct']:.2f}%)",
+            "[4] Save & Apply Settings (Return to Main Menu)",
+        ])
+        if choice.startswith("[1]"):
+            CONFIG = save_config(CONFIG_PATH, {
+                "execution_environment": "local"
+                if CONFIG["execution_environment"] == "modal" else "modal",
+            })
+        elif choice.startswith("[2]"):
+            try:
+                equity = float(ask("Default account equity ($)", str(CONFIG["account_equity"])))
+                if equity < 0:
+                    raise ValueError
+                CONFIG = save_config(CONFIG_PATH, {"account_equity": equity})
+            except ValueError:
+                console.print("[red][ERR] Equity must be a non-negative number.[/red]")
+        elif choice.startswith("[3]"):
+            try:
+                risk = float(ask("Default risk per trade (%)", str(CONFIG["risk_per_trade_pct"])))
+                if risk < 0:
+                    raise ValueError
+                CONFIG = save_config(CONFIG_PATH, {"risk_per_trade_pct": risk})
+            except ValueError:
+                console.print("[red][ERR] Risk must be a non-negative number.[/red]")
+        else:
+            CONFIG = save_config(CONFIG_PATH, CONFIG)
+            return
+
+
 def main() -> None:
     banner()
     choices = [
@@ -329,8 +383,9 @@ def main() -> None:
         "[6] Trade Execution & Dynamic Levels Lookup",
         "[7] Historical Strategy Backtester",
         "[8] Multi-Strategy Ensemble Analyzer",
-        "[9] Setup & README Guide",
-        "[10] Exit Terminal",
+        "[9] System Settings",
+        "[10] Setup & README Guide",
+        "[11] Exit Terminal",
     ]
     while True:
         choice = choose("Select terminal operation", choices)
@@ -353,6 +408,9 @@ def main() -> None:
             elif choice.startswith("[8]"):
                 ensemble()
             elif choice.startswith("[9]"):
+                settings_menu()
+                banner()
+            elif choice.startswith("[10]"):
                 setup_guide()
             else:
                 console.print("[green][OK] Terminal session closed.[/green]")

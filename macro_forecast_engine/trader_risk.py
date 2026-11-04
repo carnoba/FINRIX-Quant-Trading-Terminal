@@ -15,6 +15,7 @@ def size_position(
     equity: float,
     risk_fraction: float = 0.01,
     kelly_fraction: float = 0.25,
+    micro_lot_floor: float = 0.01,
 ) -> dict[str, Any]:
     """Return fractional-Kelly and volatility-parity units from forecast corridors."""
     entry = float(entry)
@@ -32,7 +33,7 @@ def size_position(
     allocation = equity * allocation_fraction
     units = allocation / entry if entry > 0 else 0.0
     if equity > 0 and entry > 0:
-        units = max(0.01, units)
+        units = max(float(micro_lot_floor), units)
         allocation = max(allocation, units * entry)
     return {
         "entry": round(entry, 4),

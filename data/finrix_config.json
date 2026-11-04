@@ -1,0 +1,7 @@
+{
+  "execution_environment": "modal",
+  "account_equity": 1000.0,
+  "risk_per_trade_pct": 1.0,
+  "micro_lot_floor": 0.01,
+  "theme": "dark_green"
+}

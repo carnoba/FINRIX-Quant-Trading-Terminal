@@ -1,4 +1,4 @@
-# Institutional XAUUSD Modal Macro Forecasting Engine
+# FINRIX XAUUSD Quant Trading Terminal
 
 Cloud-native XAUUSD forecasting using a multi-horizon NeuralForecast TFT, FinBERT macro sentiment, FRED real yields and curve spreads, CFTC positioning, ETF flows, and yfinance market data. Training, inference, sentiment scoring, Monte Carlo simulation, and SMC overlays run inside a Modal A10G GPU worker.
 
@@ -57,6 +57,16 @@ Launch the green Rich/questionary terminal:
 ```bash
 python app.py
 ```
+
+On Windows, add the repository directory to `PATH` once, then launch directly:
+
+```cmd
+finrix
+```
+
+FINRIX creates and persists `data/finrix_config.json`. The System Settings menu
+controls Modal A10G versus local CPU execution, default account equity, and
+default risk per trade. Forecast actions use those saved values automatically.
 
 The menu can submit live Daily, Monthly, and Yearly Modal GPU forecasts, inspect
 FinBERT news sentiment, calculate dynamic SMC/TFT execution levels and Kelly
