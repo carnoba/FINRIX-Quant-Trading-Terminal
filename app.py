@@ -34,7 +34,7 @@ from macro_forecast_engine.trader_execution import build_execution_plan
 from macro_forecast_engine.trader_risk import size_position
 from macro_forecast_engine.trader_timemachine import (
     STRATEGIES, TIMEFRAME_FETCH, normalize_timeframe_prices, run_strategy_matrix,
-    replay_forecasts,
+    replay_forecasts, strategy_confidence,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -144,12 +144,16 @@ def run_forecast(mode: str, force: bool = True) -> dict[str, Any]:
             pass
     if CONFIG["execution_environment"] == "modal":
         command = [sys.executable, "-m", "modal", "run",
-                   "macro_forecast_engine/modal_engine.py", "--mode", mode]
+                   "macro_forecast_engine/modal_engine.py", "--mode", mode,
+                   "--account-equity", str(CONFIG["account_equity"]),
+                   "--risk-per-trade-pct", str(CONFIG["risk_per_trade_pct"])]
         status_text = f"☁️ Running {mode} forecast on Modal A10G Cloud GPU..."
         error_title = "Modal Forecast Error"
     else:
         command = [sys.executable, "-m", "macro_forecast_engine.run_engine",
-                   "--mode", mode, "--environment", "local", "--output", str(path)]
+                   "--mode", mode, "--environment", "local", "--output", str(path),
+                   "--account-equity", str(CONFIG["account_equity"]),
+                   "--risk-per-trade-pct", str(CONFIG["risk_per_trade_pct"])]
         status_text = f"⚡ Running {mode} forecast on Local CPU (Python Engine)..."
         error_title = "Local Forecast Error"
     environment = {**os.environ, "PYTHONIOENCODING": "utf-8"}
@@ -330,25 +334,47 @@ def _historical_log_return_forecast(history: pd.Series, horizon: int) -> list[fl
 
 def ensemble() -> None:
     refresh_config()
-    proceed = ask(
-        "[WARNING] Parallel multi-strategy backtesting on Modal A10G consumes cloud credits. "
-        "Proceed? (Y/N)", "N",
-    ).strip().lower()
-    if proceed not in {"y", "yes"}:
-        console.print("[yellow]Cancelled; no Modal jobs were submitted.[/yellow]")
-        return
-    with console.status("[green]Running parallel strategy ensemble on Modal A10G...[/green]"):
-        command = [sys.executable, "-m", "modal", "run",
-                   "macro_forecast_engine/modal_engine.py", "--mode", "ensemble"]
-        environment = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-        completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True,
-                                   encoding="utf-8", errors="replace", env=environment)
-    if completed.returncode != 0:
-        raise RuntimeError(f"Modal ensemble failed with exit code {completed.returncode}")
     path = DATA_DIR / "modal_ensemble.json"
+    if CONFIG["execution_environment"] == "modal":
+        proceed = ask(
+            "[WARNING] Parallel multi-strategy backtesting on Modal A10G consumes cloud credits. "
+            "Proceed? (Y/N)", "N",
+        ).strip().lower()
+        if proceed not in {"y", "yes"}:
+            console.print("[yellow]Cancelled; no Modal jobs were submitted.[/yellow]")
+            return
+        with console.status("[green]Running parallel strategy ensemble on Modal A10G...[/green]"):
+            command = [sys.executable, "-m", "modal", "run",
+                       "macro_forecast_engine/modal_engine.py", "--mode", "ensemble",
+                       "--market-period", "5y"]
+            environment = {**os.environ, "PYTHONIOENCODING": "utf-8",
+                           "PYTHONUTF8": "1"}
+            completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True,
+                                       encoding="utf-8", errors="replace", env=environment)
+        if completed.returncode != 0:
+            raise RuntimeError(f"Modal ensemble failed with exit code {completed.returncode}")
+    else:
+        from macro_forecast_engine.data_loader import fetch_market_data
+        rows: list[dict[str, Any]] = []
+        with console.status("[green]Running local CPU strategy ensemble...[/green]"):
+            for timeframe in ("1D", "4h", "1h"):
+                period, interval = TIMEFRAME_FETCH[timeframe]
+                market = fetch_market_data(period, interval=interval)
+                prices = normalize_timeframe_prices(market["gold_close"], timeframe)
+                matrix = run_strategy_matrix(prices, list(STRATEGIES), [timeframe])
+                for row in matrix.to_dict("records"):
+                    row["confidence"] = strategy_confidence(row)
+                    rows.append(row)
+        rows.sort(key=lambda row: (row["confidence"], row["net_expected_return"]), reverse=True)
+        path.write_text(json.dumps({
+            "execution_environment": "Local CPU",
+            "generated_at_utc": pd.Timestamp.now(tz="UTC").isoformat(),
+            "leaderboard": rows[:5],
+            "recommendation": f"{rows[0]['strategy']} / {rows[0]['timeframe']}",
+        }, indent=2), encoding="utf-8")
     if not path.exists():
         raise FileNotFoundError(f"Ensemble artifact was not created: {path}")
-    report = json.loads(path.read_text(encoding="utf-8"))
+    report = json.loads(path.read_text(encoding="utf-8-sig"))
     table = Table(title="Modal A10G Top 5 Strategy Leaderboard", box=box.ASCII)
     table.add_column("Rank", justify="right")
     table.add_column("Strategy / Timeframe", style="green")

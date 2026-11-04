@@ -94,6 +94,16 @@ def run_strategy_matrix(prices: pd.Series, strategies: list[str], timeframes: li
     return pd.DataFrame(rows)
 
 
+def strategy_confidence(row: dict[str, Any]) -> float:
+    """Bound confidence to a stable 0-100 score from risk-adjusted metrics."""
+    win_component = np.clip((float(row["win_rate"]) - 50.0) * 0.5, -20.0, 20.0)
+    profit_component = np.clip((float(row["profit_factor"]) - 1.0) * 15.0, -15.0, 15.0)
+    sharpe_component = np.clip(float(row["sharpe_ratio"]) * 8.0, -15.0, 20.0)
+    drawdown_component = -np.clip(float(row["max_drawdown"]) * 0.1, 0.0, 15.0)
+    return float(np.clip(55.0 + win_component + profit_component
+                         + sharpe_component + drawdown_component, 0.0, 95.0))
+
+
 def replay_forecasts(
     prices: pd.Series,
     forecast_fn: Callable[[pd.Series, int], pd.Series],

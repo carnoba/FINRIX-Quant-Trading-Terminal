@@ -19,6 +19,7 @@ try:
     from .trader_risk import size_position
     from .trader_timemachine import (
         STRATEGIES, TIMEFRAME_FETCH, normalize_timeframe_prices, run_strategy_matrix,
+        strategy_confidence,
     )
 except ImportError:  # Modal may load this file as a top-level script.
     from macro_forecast_engine.config import DATA_DIR, FINBERT_MODEL, HORIZONS
@@ -30,6 +31,7 @@ except ImportError:  # Modal may load this file as a top-level script.
     from macro_forecast_engine.trader_risk import size_position
     from macro_forecast_engine.trader_timemachine import (
         STRATEGIES, TIMEFRAME_FETCH, normalize_timeframe_prices, run_strategy_matrix,
+        strategy_confidence,
     )
 
 try:
@@ -261,7 +263,13 @@ def _smc(features: pd.DataFrame) -> dict[str, Any]:
     }
 
 
-def _run_worker(mode: str, market_period: str = "10y", fred_api_key: str = "") -> dict[str, Any]:
+def _run_worker(
+    mode: str,
+    market_period: str = "10y",
+    fred_api_key: str = "",
+    account_equity: float = 100_000.0,
+    risk_per_trade_pct: float = 1.0,
+) -> dict[str, Any]:
     if mode not in HORIZONS:
         raise ValueError(f"mode must be one of {', '.join(HORIZONS)}")
     if fred_api_key:
@@ -297,7 +305,8 @@ def _run_worker(mode: str, market_period: str = "10y", fred_api_key: str = "") -
     risk = size_position(
         execution["entry_zone"][1] if execution["side"] == "long" else execution["entry_zone"][0],
         rows[0]["expected_low_q10"], rows[0]["target_q50"], rows[0]["expected_high_q90"],
-        equity=100_000.0,
+        equity=account_equity,
+        risk_fraction=max(0.0, float(risk_per_trade_pct)) / 100.0,
     )
     return {
         "execution_environment": "Modal GPU A10G",
@@ -311,6 +320,10 @@ def _run_worker(mode: str, market_period: str = "10y", fred_api_key: str = "") -
         "buy_zone": smc["buy_zone"], "sell_zone": smc["sell_zone"],
         "risk_levels": execution,
         "position_sizing": risk,
+        "risk_configuration": {
+            "account_equity": float(account_equity),
+            "risk_per_trade_pct": float(risk_per_trade_pct),
+        },
         "forecast": rows, "milestones": milestones, "monte_carlo": mc,
         "smc": smc, "ingestion": {"fred": ["DFII10", "DGS10-DGS2"], "cot": not cot.empty,
                                   "finbert": FINBERT_MODEL, "headline_count": len(news),
@@ -347,9 +360,20 @@ def _print_summary(payload: dict[str, Any], output: Path) -> None:
 if modal is not None:
     @app.function(image=image, gpu="A10G", timeout=2400, retries=1,
                   secrets=[modal.Secret.from_name("fred-secret")])
-    def forecast_worker(mode: str = "monthly", market_period: str = "10y",
-                        fred_api_key: str = "") -> dict[str, Any]:
-        return _run_worker(mode, market_period, fred_api_key or os.getenv("FRED_API_KEY", ""))
+    def forecast_worker(
+        mode: str = "monthly",
+        market_period: str = "10y",
+        fred_api_key: str = "",
+        account_equity: float = 100_000.0,
+        risk_per_trade_pct: float = 1.0,
+    ) -> dict[str, Any]:
+        return _run_worker(
+            mode,
+            market_period,
+            fred_api_key or os.getenv("FRED_API_KEY", ""),
+            account_equity,
+            risk_per_trade_pct,
+        )
 
     @app.function(image=image, gpu="A10G", timeout=1800, retries=1)
     def strategy_backtest_worker(strategy: str, timeframe: str,
@@ -360,15 +384,17 @@ if modal is not None:
         prices = normalize_timeframe_prices(market["gold_close"], timeframe)
         result = run_strategy_matrix(prices, [strategy], [timeframe])
         row = result.iloc[0].to_dict()
-        volatility = max(abs(float(row["sharpe_ratio"])), 1.0)
-        row["confidence"] = float(np.clip(
-            0.6 * float(row["win_rate"]) + 10.0 * volatility
-            + max(float(row["net_expected_return"]), 0.0), 0.0, 100.0
-        ))
+        row["confidence"] = strategy_confidence(row)
         return row
 
     @app.local_entrypoint()
-    def main(mode: str = "monthly", output: str = "", market_period: str = "10y") -> None:
+    def main(
+        mode: str = "monthly",
+        output: str = "",
+        market_period: str = "10y",
+        account_equity: float = 100_000.0,
+        risk_per_trade_pct: float = 1.0,
+    ) -> None:
         if mode == "ensemble":
             destination = Path(output) if output else DATA_DIR / "modal_ensemble.json"
             tasks = [(strategy, timeframe) for timeframe in ("1D", "4h", "1h")
@@ -396,7 +422,9 @@ if modal is not None:
         filename_mode = {"monthly": "month", "yearly": "year"}.get(mode, mode)
         destination = Path(output) if output else DATA_DIR / f"macro_{filename_mode}_forecast.json"
         payload = forecast_worker.remote(mode=mode, market_period=market_period,
-                                         fred_api_key=os.getenv("FRED_API_KEY", ""))
+                                         fred_api_key=os.getenv("FRED_API_KEY", ""),
+                                         account_equity=account_equity,
+                                         risk_per_trade_pct=risk_per_trade_pct)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(json.dumps(payload, indent=2, allow_nan=False), encoding="utf-8")
         _print_summary(payload, destination)

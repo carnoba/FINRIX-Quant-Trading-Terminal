@@ -22,11 +22,19 @@ def main() -> None:
     parser.add_argument("--market-period", default="10y")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--environment", choices=("local", "modal"), default="local")
+    parser.add_argument("--account-equity", type=float, default=1000.0)
+    parser.add_argument("--risk-per-trade-pct", type=float, default=1.0)
     args = parser.parse_args()
 
     fred_api_key = os.getenv("FRED_API_KEY", "").strip()
     if args.environment == "local":
-        payload = _run_worker(args.mode, args.market_period, fred_api_key)
+        payload = _run_worker(
+            args.mode,
+            args.market_period,
+            fred_api_key,
+            account_equity=args.account_equity,
+            risk_per_trade_pct=args.risk_per_trade_pct,
+        )
         payload["execution_environment"] = "Local CPU"
         payload["confidence_score"] = round(float(np.clip(
             payload.get("confidence_score", 50.0), 50.0, 74.0,
