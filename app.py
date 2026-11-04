@@ -433,7 +433,7 @@ def ensemble() -> None:
         from macro_forecast_engine.data_loader import fetch_market_data
         rows: list[dict[str, Any]] = []
         with console.status("[green]Running local CPU strategy ensemble...[/green]"):
-            for timeframe in ("1D", "4h", "1h"):
+            for timeframe in ("15m", "1h", "4h", "1D"):
                 period, interval = TIMEFRAME_FETCH[timeframe]
                 market = fetch_market_data(period, interval=interval)
                 prices = normalize_timeframe_prices(market["gold_close"], timeframe)

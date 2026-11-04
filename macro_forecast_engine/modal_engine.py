@@ -489,7 +489,7 @@ if modal is not None:
         if mode == "ensemble":
             destination = Path(output) if output else DATA_DIR / "modal_ensemble.json"
             indicator_params_json = json.dumps(load_indicator_params(), sort_keys=True)
-            tasks = [(strategy, timeframe) for timeframe in ("1D", "4h", "1h")
+            tasks = [(strategy, timeframe) for timeframe in ("15m", "1h", "4h", "1D")
                      for strategy in STRATEGIES]
             rows = list(strategy_backtest_worker.map(
                 [strategy for strategy, _ in tasks],

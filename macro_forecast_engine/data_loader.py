@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 from io import StringIO
 import xml.etree.ElementTree as ET
 from typing import Any, Iterable, Mapping, Optional
@@ -23,6 +24,16 @@ try:
 except ImportError:  # pragma: no cover
     yf = None
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+MARKET_CACHE_PATH = PROJECT_ROOT / "cache" / "gold_market_cache.csv"
+GOLD_TICKERS = ("GC=F", "XAUUSD=X")
+INTRADAY_PERIOD_LIMITS = {
+    "15m": ("60d", "15m"),
+    "1h": ("60d", "1h"),
+    "4h": ("60d", "1h"),
+    "1d": ("730d", "1d"),
+}
+
 
 def _download(ticker: str, period: str = "10y", interval: str = "1d") -> pd.DataFrame:
     if yf is None:
@@ -38,20 +49,57 @@ def _download(ticker: str, period: str = "10y", interval: str = "1d") -> pd.Data
     return frame
 
 
+def _normalized_request(period: str, interval: str) -> tuple[str, str]:
+    configured = INTRADAY_PERIOD_LIMITS.get(interval.lower())
+    return configured if configured else (period, interval)
+
+
+def _load_cached_gold() -> pd.DataFrame:
+    if not MARKET_CACHE_PATH.exists():
+        return pd.DataFrame()
+    try:
+        cached = pd.read_csv(MARKET_CACHE_PATH, index_col=0, parse_dates=True)
+        cached.index = pd.to_datetime(cached.index, utc=True).tz_localize(None)
+        if "gold_close" not in cached.columns:
+            return pd.DataFrame()
+        return cached.sort_index().dropna(subset=["gold_close"])
+    except (OSError, ValueError, TypeError):
+        return pd.DataFrame()
+
+
+def _fetch_gold(period: str, interval: str) -> pd.DataFrame:
+    request_period, request_interval = _normalized_request(period, interval)
+    for ticker in GOLD_TICKERS:
+        try:
+            data = _download(ticker, request_period, request_interval)
+            if "close" not in data.columns or data["close"].dropna().empty:
+                continue
+            result = data.rename(columns={"close": "gold_close", "volume": "gold_volume"})
+            MARKET_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            result.to_csv(MARKET_CACHE_PATH)
+            return result
+        except (RuntimeError, ValueError, requests.RequestException, OSError):
+            continue
+    cached = _load_cached_gold()
+    if not cached.empty:
+        return cached
+    raise ValueError("Gold market data is unavailable from GC=F, XAUUSD=X, and local cache")
+
+
 def fetch_market_data(period: str = "10y", interval: str = "1d") -> pd.DataFrame:
     """Fetch gold, DXY, GVZ, ETF holdings/volume, and align daily factors."""
-    frames: list[pd.DataFrame] = []
-    for ticker, prefix in (("GC=F", "gold"), ("DX-Y.NYB", "dxy"),
+    gold = _fetch_gold(period, interval)
+    frames: list[pd.DataFrame] = [gold]
+    request_period, request_interval = _normalized_request(period, interval)
+    for ticker, prefix in (("DX-Y.NYB", "dxy"),
                            ("^GVZ", "gvz"), ("GLD", "gld"), ("IAU", "iau")):
         try:
-            data = _download(ticker, period, interval)
-        except (RuntimeError, ValueError, requests.RequestException):
+            data = _download(ticker, request_period, request_interval)
+        except (RuntimeError, ValueError, requests.RequestException, OSError):
             continue
         columns = {"close": f"{prefix}_close", "volume": f"{prefix}_volume"}
         available = {source: target for source, target in columns.items() if source in data.columns}
         frames.append(data.rename(columns=available)[list(available.values())])
-    if not frames or "gold_close" not in frames[0]:
-        raise ValueError("Gold market data is unavailable")
     frame = frames[0]
     for other in frames[1:]:
         frame = frame.join(other, how="outer")
