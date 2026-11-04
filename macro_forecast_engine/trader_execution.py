@@ -30,12 +30,12 @@ def build_execution_plan(
     buffer = PIP_SIZE * STOP_BUFFER_PIPS
     neutral = bias.lower() not in {"bullish", "bearish"}
     if neutral:
-        ssl = float(liquidity.get("ssl", entry))
-        bsl = float(liquidity.get("bsl", entry))
-        lower_spacing = float(np.clip(abs(entry - ssl), 15.0, 25.0))
-        upper_spacing = float(np.clip(abs(bsl - entry), 15.0, 25.0))
-        targets = [entry - lower_spacing, entry, entry + upper_spacing]
-        stop = entry
+        entry_low = min(entry, float(lows[0]))
+        entry_high = max(entry, float(highs[0]))
+        entry_midpoint = (entry_low + entry_high) / 2.0
+        targets = [entry_low - 25.0, entry_low - 50.0, entry_low - 75.0]
+        stop = entry_high + buffer
+        entry = entry_midpoint
     elif bullish:
         local_levels = [
             float(fvg.get("low", entry)),
@@ -64,17 +64,18 @@ def build_execution_plan(
         targets = [min(entry, target) for target in targets]
     risk_distance = abs(entry - stop)
     reward_distance = abs(targets[0] - entry)
+    entry_low = min(entry, float(lows[0]))
+    entry_high = max(entry, float(highs[0]))
     return {
         "side": "long" if bullish else "short",
-        "entry_zone": [round(min(entry, float(lows[0])), 4), round(max(entry, float(highs[0])), 4)],
+        "entry_zone": [round(entry_low, 4), round(entry_high, 4)],
         "stop_loss": round(stop, 4),
         "take_profit_1": round(targets[0], 4),
         "take_profit_2": round(targets[1], 4),
         "take_profit_3": round(targets[2], 4),
         "risk_distance": round(risk_distance, 4),
         "reward_distance": round(reward_distance, 4),
-        "risk_reward": round(reward_distance / max(risk_distance, 1e-9), 4)
-        if not neutral else 0.0,
+        "risk_reward": round(reward_distance / max(risk_distance, 1e-9), 4),
         "trailing_stop": {
             "activation": round(targets[0], 4),
             "distance": round(abs(targets[0] - stop), 4),
