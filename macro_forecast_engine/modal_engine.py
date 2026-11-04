@@ -65,29 +65,51 @@ def _returns_to_prices(last_price: float, returns: np.ndarray) -> np.ndarray:
     return float(last_price) * np.exp(np.cumsum(np.asarray(returns, dtype=float), axis=0))
 
 
+def _volatility_envelope(
+    median_prices: pd.Series | np.ndarray,
+    log_returns: pd.Series,
+    drift: float,
+    z_score: float = 1.2816,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build smoothly widening log-normal corridors from trailing volatility."""
+    median = np.asarray(median_prices, dtype=float)
+    clean_returns = pd.Series(log_returns, dtype=float).replace([np.inf, -np.inf], np.nan).dropna()
+    if clean_returns.empty:
+        clean_returns = pd.Series([drift], dtype=float)
+    trailing = clean_returns.ewm(span=20, adjust=False).std().iloc[-1]
+    historic = clean_returns.tail(252).std()
+    current_sigma = float(trailing) if np.isfinite(trailing) else 0.002
+    historic_sigma = float(historic) if np.isfinite(historic) else current_sigma
+    long_run_sigma = max(historic_sigma, 0.002)
+    current_sigma = max(current_sigma, 0.002)
+    steps = np.arange(1, len(median) + 1, dtype=float)
+    dampening = np.exp(-steps / 30.0)
+    max_daily_sigma = MAX_ANNUALIZED_VOLATILITY / np.sqrt(252.0)
+    sigma_path = np.minimum(
+        long_run_sigma + (current_sigma - long_run_sigma) * dampening,
+        max_daily_sigma,
+    )
+    cumulative_sigma = np.sqrt(np.cumsum(np.square(sigma_path)))
+    envelope = z_score * cumulative_sigma
+    lower = median * np.exp(-envelope)
+    upper = median * np.exp(envelope)
+    return np.minimum(lower, median), np.maximum(upper, median)
+
+
 def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Forecast log-returns, then invert them into nominal price quantiles."""
     dates = _business_dates(features.index[-1], horizon)
     last_price = float(features["gold_close"].iloc[-1])
     returns = np.log1p(features["gold_return"].dropna()).tail(252)
     drift = float(returns.mean()) if not returns.empty else 0.0
-    volatility = max(float(returns.std()), 0.002)
-    if horizon >= 252:
-        volatility = min(volatility, MAX_ANNUALIZED_VOLATILITY / np.sqrt(252.0))
     steps = np.arange(1, horizon + 1)
     median_returns = np.full(horizon, drift)
     prices = _returns_to_prices(last_price, median_returns)
     result = pd.DataFrame(index=dates)
     result["q0.5"] = prices
-    result["q0.1"] = last_price * np.exp(drift * steps - 1.2816 * volatility * np.sqrt(steps))
-    result["q0.9"] = last_price * np.exp(drift * steps + 1.2816 * volatility * np.sqrt(steps))
-    floor = max(MIN_GOLD_PRICE, last_price * 0.55)
-    ceiling = min(MAX_GOLD_PRICE, last_price * 1.60)
-    result["q0.1"] = result["q0.1"].clip(lower=floor, upper=ceiling)
-    result["q0.5"] = result["q0.5"].clip(lower=floor, upper=ceiling)
-    result["q0.9"] = result["q0.9"].clip(lower=floor, upper=ceiling)
-    result["q0.1"] = np.minimum(result["q0.1"], result["q0.5"])
-    result["q0.9"] = np.maximum(result["q0.9"], result["q0.5"])
+    result["q0.1"], result["q0.9"] = _volatility_envelope(
+        result["q0.5"], returns, drift,
+    )
     diagnostics: dict[str, Any] = {
         "model_used": "calibrated_fallback",
         "train_loss": None,
@@ -228,11 +250,9 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
             result["q0.9"] = _returns_to_prices(last_price, ordered_returns[:, 2])
     except (AttributeError, ImportError, OSError, RuntimeError, ValueError, KeyError, TypeError) as error:
         diagnostics["fallback_reason"] = f"{type(error).__name__}: {error}"
-    result["q0.1"] = result["q0.1"].clip(lower=floor, upper=ceiling)
-    result["q0.5"] = result["q0.5"].clip(lower=floor, upper=ceiling)
-    result["q0.9"] = result["q0.9"].clip(lower=floor, upper=ceiling)
-    result["q0.1"] = np.minimum(result["q0.1"], result["q0.5"])
-    result["q0.9"] = np.maximum(result["q0.9"], result["q0.5"])
+    result["q0.1"], result["q0.9"] = _volatility_envelope(
+        result["q0.5"], returns, drift,
+    )
     return result, diagnostics
 
 
