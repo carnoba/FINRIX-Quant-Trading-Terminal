@@ -17,6 +17,7 @@ try:
                               fetch_macro_data, fetch_market_data)
     from .trader_execution import build_execution_plan
     from .trader_risk import size_position
+    from .indicator_params import load_indicator_params
     from .trader_timemachine import (
         STRATEGIES, TIMEFRAME_FETCH, normalize_timeframe_prices, run_strategy_matrix,
         strategy_confidence,
@@ -29,6 +30,7 @@ except ImportError:  # Modal may load this file as a top-level script.
     )
     from macro_forecast_engine.trader_execution import build_execution_plan
     from macro_forecast_engine.trader_risk import size_position
+    from macro_forecast_engine.indicator_params import load_indicator_params
     from macro_forecast_engine.trader_timemachine import (
         STRATEGIES, TIMEFRAME_FETCH, normalize_timeframe_prices, run_strategy_matrix,
         strategy_confidence,
@@ -47,7 +49,7 @@ VOLATILITY_MEAN_REVERSION = 0.92
 if modal is not None:
     image = modal.Image.debian_slim(python_version="3.11").pip_install(
         "neuralforecast==1.7.5", "transformers", "torch", "yfinance", "requests", "pandas", "numpy",
-        "scikit-learn", "rich", "questionary"
+        "scikit-learn", "rich", "questionary", "InquirerPy"
     ).add_local_python_source(
         "macro_forecast_engine"
     )
@@ -459,12 +461,19 @@ if modal is not None:
 
     @app.function(image=image, gpu="A10G", timeout=1800, retries=1)
     def strategy_backtest_worker(strategy: str, timeframe: str,
-                                 market_period: str = "5y") -> dict[str, Any]:
+                                 market_period: str = "5y",
+                                 account_equity: float = 1000.0,
+                                 risk_per_trade_pct: float = 1.0,
+                                 indicator_params_json: str = "") -> dict[str, Any]:
         default_period, interval = TIMEFRAME_FETCH[timeframe]
         period = default_period if timeframe != "1D" else market_period
         market = fetch_market_data(period, interval=interval)
         prices = normalize_timeframe_prices(market["gold_close"], timeframe)
-        result = run_strategy_matrix(prices, [strategy], [timeframe])
+        indicator_params = json.loads(indicator_params_json) if indicator_params_json else load_indicator_params()
+        result = run_strategy_matrix(
+            prices, [strategy], [timeframe], indicator_params,
+            account_equity, risk_per_trade_pct,
+        )
         row = result.iloc[0].to_dict()
         row["confidence"] = strategy_confidence(row)
         return row
@@ -479,12 +488,16 @@ if modal is not None:
     ) -> None:
         if mode == "ensemble":
             destination = Path(output) if output else DATA_DIR / "modal_ensemble.json"
+            indicator_params_json = json.dumps(load_indicator_params(), sort_keys=True)
             tasks = [(strategy, timeframe) for timeframe in ("1D", "4h", "1h")
                      for strategy in STRATEGIES]
             rows = list(strategy_backtest_worker.map(
                 [strategy for strategy, _ in tasks],
                 [timeframe for _, timeframe in tasks],
                 [market_period] * len(tasks),
+                [account_equity] * len(tasks),
+                [risk_per_trade_pct] * len(tasks),
+                [indicator_params_json] * len(tasks),
             ))
             rows.sort(key=lambda row: (float(row["confidence"]),
                                        float(row["net_expected_return"])), reverse=True)

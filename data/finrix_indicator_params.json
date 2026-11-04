@@ -1,0 +1,46 @@
+{
+  "rsi": {
+    "period": 14,
+    "overbought": 70,
+    "oversold": 30
+  },
+  "ema": {
+    "fast_period": 9,
+    "slow_period": 21,
+    "trend_period": 200
+  },
+  "macd": {
+    "fast": 12,
+    "slow": 26,
+    "signal": 9
+  },
+  "bollinger": {
+    "period": 20,
+    "std_dev": 2.0
+  },
+  "supertrend": {
+    "atr_period": 10,
+    "factor": 3.0
+  },
+  "stochastic": {
+    "k_period": 14,
+    "d_period": 3,
+    "slowing": 3
+  },
+  "adx": {
+    "period": 14,
+    "threshold": 25
+  },
+  "atr": {
+    "period": 14
+  },
+  "ichimoku": {
+    "tenkan": 9,
+    "kijun": 26,
+    "senkou_b": 52
+  },
+  "smc": {
+    "fvg_min_pip_gap": 1.5,
+    "order_block_lookback": 20
+  }
+}

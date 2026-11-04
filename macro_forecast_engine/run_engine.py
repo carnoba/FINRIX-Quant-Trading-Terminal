@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from .modal_engine import _print_summary, _run_worker, forecast_worker
+from .indicator_params import load_indicator_params
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +29,7 @@ def main() -> None:
 
     fred_api_key = os.getenv("FRED_API_KEY", "").strip()
     if args.environment == "local":
+        indicator_params = load_indicator_params()
         payload = _run_worker(
             args.mode,
             args.market_period,
@@ -40,6 +42,7 @@ def main() -> None:
         payload["confidence_score"] = round(float(np.clip(
             payload.get("confidence_score", 50.0), 50.0, 74.0,
         )), 2)
+        payload["indicator_parameters"] = indicator_params
     else:
         payload = forecast_worker.remote(
             mode=args.mode,

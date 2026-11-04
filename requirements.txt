@@ -11,3 +11,4 @@ requests==2.32.3
 python-dotenv==1.0.1
 rich==13.9.4
 questionary==2.0.1
+InquirerPy==0.3.4

@@ -23,6 +23,10 @@ try:
     import questionary
 except ImportError:  # pragma: no cover
     questionary = None
+try:
+    from InquirerPy import inquirer
+except ImportError:  # pragma: no cover
+    inquirer = None
 
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -30,6 +34,9 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
 from macro_forecast_engine.data_loader import fetch_live_news
 from macro_forecast_engine.data_processor import analyze_news_sentiment
 from macro_forecast_engine.finrix_config import load_config, save_config
+from macro_forecast_engine.indicator_params import (
+    DEFAULT_INDICATOR_PARAMS, load_indicator_params, save_indicator_params,
+)
 from macro_forecast_engine.trader_execution import build_execution_plan
 from macro_forecast_engine.trader_risk import size_position
 from macro_forecast_engine.trader_timemachine import (
@@ -41,6 +48,7 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 CONFIG_PATH = DATA_DIR / "finrix_config.json"
 CONFIG = load_config(CONFIG_PATH)
+INDICATOR_PARAMS = load_indicator_params()
 console = Console()
 
 
@@ -48,6 +56,67 @@ def refresh_config() -> dict[str, Any]:
     global CONFIG
     CONFIG = load_config(CONFIG_PATH)
     return CONFIG
+
+
+def refresh_indicator_params() -> dict[str, dict[str, float | int]]:
+    global INDICATOR_PARAMS
+    INDICATOR_PARAMS = load_indicator_params()
+    return INDICATOR_PARAMS
+
+
+def customize_indicator_params() -> None:
+    global INDICATOR_PARAMS
+    params = refresh_indicator_params()
+    choices = [
+        "[1] Use Standard MT5/TradingView Parameters (Defaults)",
+        "[2] Customize Indicator Parameters",
+    ]
+    if inquirer is not None:
+        choice = inquirer.select(message="Indicator parameters", choices=choices).execute()
+    else:
+        choice = choose("Indicator parameters", choices)
+    if choice.startswith("[1]"):
+        INDICATOR_PARAMS = save_indicator_params(DEFAULT_INDICATOR_PARAMS)
+        console.print("[green]Standard indicator parameters applied.[/green]")
+        return
+    fields = (
+        ("rsi", "period", 2, 100, "RSI period"),
+        ("rsi", "overbought", 50, 99, "RSI overbought"),
+        ("rsi", "oversold", 1, 50, "RSI oversold"),
+        ("ema", "fast_period", 2, 200, "EMA fast period"),
+        ("ema", "slow_period", 3, 400, "EMA slow period"),
+        ("ema", "trend_period", 10, 500, "EMA trend period"),
+        ("macd", "fast", 2, 100, "MACD fast"),
+        ("macd", "slow", 3, 200, "MACD slow"),
+        ("macd", "signal", 2, 100, "MACD signal"),
+        ("bollinger", "period", 2, 200, "Bollinger period"),
+        ("bollinger", "std_dev", 0.5, 6.0, "Bollinger standard deviation"),
+        ("supertrend", "atr_period", 2, 100, "Supertrend ATR period"),
+        ("supertrend", "factor", 0.5, 10.0, "Supertrend factor"),
+        ("stochastic", "k_period", 2, 100, "Stochastic K period"),
+        ("stochastic", "d_period", 2, 50, "Stochastic D period"),
+        ("stochastic", "slowing", 1, 50, "Stochastic slowing"),
+        ("adx", "period", 2, 100, "ADX period"),
+        ("adx", "threshold", 1, 100, "ADX threshold"),
+        ("atr", "period", 2, 100, "ATR period"),
+        ("ichimoku", "tenkan", 2, 100, "Ichimoku Tenkan"),
+        ("ichimoku", "kijun", 2, 200, "Ichimoku Kijun"),
+        ("ichimoku", "senkou_b", 2, 300, "Ichimoku Senkou B"),
+        ("smc", "fvg_min_pip_gap", 0.1, 20.0, "SMC FVG minimum pip gap"),
+        ("smc", "order_block_lookback", 2, 200, "SMC order block lookback"),
+    )
+    for group, key, low, high, label in fields:
+        current = str(params[group][key])
+        value = ask(f"{label} ({low}-{high})", current)
+        try:
+            numeric = float(value)
+            if not low <= numeric <= high:
+                raise ValueError
+            params[group][key] = int(numeric) if numeric.is_integer() else numeric
+        except ValueError:
+            console.print(f"[yellow]Keeping {label}={current}; invalid value.[/yellow]")
+    INDICATOR_PARAMS = save_indicator_params(params)
+    console.print("[green]Indicator overrides saved to data/finrix_indicator_params.json.[/green]")
 
 
 def clear_screen() -> None:
@@ -289,8 +358,9 @@ def execution_lookup() -> None:
 
 def backtester() -> None:
     refresh_config()
+    customize_indicator_params()
     strategies = choose_many("Select strategies to test", list(STRATEGIES))
-    timeframes = choose_many("Select timeframes to test", ["1m", "5m", "15m", "1h", "4h", "1D"])
+    timeframes = choose_many("Select timeframes to test", ["15m", "1h", "4h", "1D"])
     console.print(
         f"[green]Selected strategies:[/green] {', '.join(strategies)}\n"
         f"[green]Selected timeframes:[/green] {', '.join(timeframes)}"
@@ -303,7 +373,10 @@ def backtester() -> None:
             market = fetch_market_data(period, interval=interval)
             frames.append((timeframe, normalize_timeframe_prices(market["gold_close"], timeframe)))
     result = pd.concat(
-        [run_strategy_matrix(prices, strategies, [timeframe]) for timeframe, prices in frames],
+        [run_strategy_matrix(
+            prices, strategies, [timeframe], INDICATOR_PARAMS,
+            CONFIG["account_equity"], CONFIG["risk_per_trade_pct"],
+        ) for timeframe, prices in frames],
         ignore_index=True,
     )
     table = Table(title="Lookahead-Safe Multi-Strategy / Multi-Timeframe Replay", box=box.ASCII)
@@ -334,6 +407,7 @@ def _historical_log_return_forecast(history: pd.Series, horizon: int) -> list[fl
 
 def ensemble() -> None:
     refresh_config()
+    customize_indicator_params()
     path = DATA_DIR / "modal_ensemble.json"
     if CONFIG["execution_environment"] == "modal":
         proceed = ask(
@@ -346,7 +420,9 @@ def ensemble() -> None:
         with console.status("[green]Running parallel strategy ensemble on Modal A10G...[/green]"):
             command = [sys.executable, "-m", "modal", "run",
                        "macro_forecast_engine/modal_engine.py", "--mode", "ensemble",
-                       "--market-period", "5y"]
+                       "--market-period", "5y",
+                       "--account-equity", str(CONFIG["account_equity"]),
+                       "--risk-per-trade-pct", str(CONFIG["risk_per_trade_pct"])]
             environment = {**os.environ, "PYTHONIOENCODING": "utf-8",
                            "PYTHONUTF8": "1"}
             completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True,
@@ -361,7 +437,10 @@ def ensemble() -> None:
                 period, interval = TIMEFRAME_FETCH[timeframe]
                 market = fetch_market_data(period, interval=interval)
                 prices = normalize_timeframe_prices(market["gold_close"], timeframe)
-                matrix = run_strategy_matrix(prices, list(STRATEGIES), [timeframe])
+                matrix = run_strategy_matrix(
+                    prices, list(STRATEGIES), [timeframe], INDICATOR_PARAMS,
+                    CONFIG["account_equity"], CONFIG["risk_per_trade_pct"],
+                )
                 for row in matrix.to_dict("records"):
                     row["confidence"] = strategy_confidence(row)
                     rows.append(row)
