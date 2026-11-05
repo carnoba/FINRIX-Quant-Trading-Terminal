@@ -1,5 +1,10 @@
 # FINRIX XAUUSD Quant Trading Terminal
 
+> **Status: Research Prototype / Quantitative Framework.** FINRIX supports
+> reproducible market research, forecasting, and backtesting. It is not
+> investment advice and does not execute live orders without a separately
+> installed and explicitly authorized broker bridge.
+
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100-rc1/)
 [![Modal GPU Sync](https://img.shields.io/badge/Modal-GPU%20A10G-orange.svg)](https://modal.com/)
 [![Zero-Trust Audit PASSED](https://img.shields.io/badge/Audit-PASSED-brightgreen.svg)](FINRIX_SECURITY_AND_QA_AUDIT_REPORT.md)
@@ -34,7 +39,16 @@ Monotonic price corridors $q_{10} \le q_{50} \le q_{90}$ with dynamic volatility
 
 ### Dynamic Equity-Based Position Sizing
 
-Real-time dollar risk math with pip-based stop-loss/take-profit calculation, equity compounding, and fractional-Kelly allocation across 14 strategies.
+Real-time dollar risk math with standardized Gold pip sizing, pip-based
+stop-loss/take-profit calculation, equity compounding, transaction-cost-aware
+trade sizing, and fractional-Kelly allocation across 14 strategies.
+
+### Genuine Trade-Based Backtesting
+
+The timemachine engine simulates signal entry, open-position tracking,
+stop-loss/take-profit exits, signal reversal, 1.5-pip spread, and slippage.
+Metrics use closed trades and the dollar equity curve rather than static
+per-bar percentage returns.
 
 ### 14-Strategy Backtesting & Parameter Engine
 
@@ -81,6 +95,24 @@ Live RSS headlines processed via **FinBERT** NLP model with dovish/hawkish net s
 - Set default risk per trade %
 - Customize indicator parameters (all 10 groups with limits)
 - Save & apply settings persistence via `data/finrix_config.json`
+
+## Quality Assurance
+
+The repository includes a real pytest suite covering dynamic risk sizing,
+lookahead-safe trade lifecycle execution, all 14 indicator strategies,
+timeframe-specific caching, non-finite JSON coercion, and configuration
+sanitization.
+
+```text
+158 passed
+```
+
+Run the checks with:
+
+```bash
+python -m pytest -q
+python -m compileall -q app.py macro_forecast_engine
+```
 
 ## Future Roadmap
 

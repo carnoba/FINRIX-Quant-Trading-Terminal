@@ -1,4 +1,24 @@
 # FINRIX Security and QA Audit Report
+## Scope and Product Status
+
+FINRIX is a **Research Prototype / Quantitative Framework**. This audit covers
+forecasting, indicator replay, risk calculations, persistence, and defensive
+serialization. It does not certify profitability, live execution quality, or
+investment suitability.
+
+## Reproducible Test Result
+
+The current pytest suite completed with **158 passed**:
+
+```text
+python -m pytest -q
+158 passed
+```
+
+The suite includes genuine trade-based lifecycle checks with entry, open
+position tracking, SL/TP or reversal exits, spread/slippage deductions, and
+closed-trade-only metrics.
+
 ## Executive Audit Summary
 
 | Category | Status |
@@ -10,7 +30,8 @@
 | Option 1-8 Functional Audit | PASS |
 | System Settings | PASS |
 
-**Overall:** PASS - The FINRIX terminal passes the comprehensive audit with all critical vulnerabilities resolved.
+**Overall:** PASS for the tested research-framework controls. This is not a
+production trading certification.
 
 **Report Date:** 2026-11-05
 

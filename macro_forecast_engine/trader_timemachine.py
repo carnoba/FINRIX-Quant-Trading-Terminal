@@ -35,9 +35,51 @@ TIMEFRAME_FETCH = {
 }
 
 
-def normalize_timeframe_prices(prices: pd.Series, timeframe: str) -> pd.Series:
+def normalize_timeframe_prices(prices: pd.Series | pd.DataFrame, timeframe: str) -> pd.Series | pd.DataFrame:
+    if isinstance(prices, pd.DataFrame):
+        frame = prices.dropna(how="all").sort_index()
+        if timeframe == "4h":
+            aggregation = {column: "last" for column in frame.columns}
+            for name in ("gold_open", "open"):
+                if name in frame:
+                    aggregation[name] = "first"
+            for name in ("gold_high", "high"):
+                if name in frame:
+                    aggregation[name] = "max"
+            for name in ("gold_low", "low"):
+                if name in frame:
+                    aggregation[name] = "min"
+            return frame.resample("4h").agg(aggregation).dropna(subset=[
+                column for column in ("gold_close", "close") if column in frame
+            ])
+        return frame
     series = prices.dropna().astype(float).sort_index()
     return series.resample("4h").last().dropna() if timeframe == "4h" else series
+
+
+PIP_SIZE = 0.10
+PIP_VALUE_PER_LOT = 1.00
+SPREAD_PIPS = 1.5
+SLIPPAGE_PIPS = 0.5
+
+
+def _ohlc_data(prices: pd.Series | pd.DataFrame) -> pd.DataFrame:
+    if isinstance(prices, pd.DataFrame):
+        frame = prices.copy()
+        columns = {str(column).lower(): column for column in frame.columns}
+        close = frame[columns.get("close", columns.get("gold_close"))].astype(float)
+        high = frame[columns.get("high", columns.get("gold_high", columns.get("close", columns.get("gold_close"))))].astype(float)
+        low = frame[columns.get("low", columns.get("gold_low", columns.get("close", columns.get("gold_close"))))].astype(float)
+        open_price = frame[columns.get("open", columns.get("gold_open", columns.get("close", columns.get("gold_close"))))].astype(float)
+        return pd.DataFrame({"open": open_price, "high": high, "low": low, "close": close}, index=frame.index)
+    close = pd.Series(prices, dtype=float)
+    spread = close.diff().abs().rolling(5, min_periods=1).mean().fillna(close * 0.001).clip(lower=0.01)
+    return pd.DataFrame({
+        "open": close,
+        "high": close + spread,
+        "low": close - spread,
+        "close": close,
+    }, index=close.index)
 
 
 def _rsi(prices: pd.Series, period: int) -> pd.Series:
@@ -47,13 +89,21 @@ def _rsi(prices: pd.Series, period: int) -> pd.Series:
     return 100 - 100 / (1 + gain / loss.replace(0, np.nan))
 
 
-def _atr(prices: pd.Series, period: int) -> pd.Series:
-    return prices.diff().abs().ewm(alpha=1 / period, adjust=False).mean()
+def _atr(prices: pd.Series | pd.DataFrame, period: int) -> pd.Series:
+    frame = _ohlc_data(prices)
+    previous_close = frame["close"].shift(1)
+    true_range = pd.concat([
+        frame["high"] - frame["low"],
+        (frame["high"] - previous_close).abs(),
+        (frame["low"] - previous_close).abs(),
+    ], axis=1).max(axis=1)
+    return true_range.ewm(alpha=1 / period, adjust=False).mean()
 
 
-def _strategy_signal(prices: pd.Series, strategy: str,
+def _strategy_signal(prices: pd.Series | pd.DataFrame, strategy: str,
                      params: dict[str, dict[str, float | int]]) -> pd.Series:
-    prices = prices.astype(float)
+    ohlc = _ohlc_data(prices)
+    prices = ohlc["close"]
     returns = prices.pct_change()
     strategy = {
         "RSI 21 Overbought/Oversold": "RSI Mean Reversion",
@@ -79,7 +129,9 @@ def _strategy_signal(prices: pd.Series, strategy: str,
         fast = prices.ewm(span=int(ema["fast_period"]), adjust=False).mean()
         slow = prices.ewm(span=int(ema["slow_period"]), adjust=False).mean()
         trend = prices.ewm(span=int(ema["trend_period"]), adjust=False).mean()
-        return np.sign(fast - slow).where((fast > trend) | (fast < trend), 0.0)
+        return pd.Series(np.select([(fast > slow) & (fast > trend),
+                                    (fast < slow) & (fast < trend)],
+                                   [1.0, -1.0], default=0.0), index=prices.index)
     if strategy == "Triple EMA Ribbon":
         fast = prices.ewm(span=int(ema["fast_period"]), adjust=False).mean()
         medium = prices.ewm(span=int(ema["slow_period"]), adjust=False).mean()
@@ -101,7 +153,7 @@ def _strategy_signal(prices: pd.Series, strategy: str,
                                    [1.0, -1.0], default=0.0), index=prices.index)
     if strategy == "Supertrend ATR Trend Follower":
         mean = prices.rolling(int(supertrend["atr_period"])).mean()
-        width = _atr(prices, int(supertrend["atr_period"])) * supertrend["factor"]
+        width = _atr(ohlc, int(supertrend["atr_period"])) * supertrend["factor"]
         return np.sign(prices - mean - width).where(prices.notna(), 0.0)
     if strategy == "Stochastic Oscillator":
         k_period = int(stochastic["k_period"])
@@ -130,13 +182,13 @@ def _strategy_signal(prices: pd.Series, strategy: str,
     if strategy == "ATR Volatility Expansion Channel":
         period = int(atr["period"])
         mean = prices.ewm(span=period, adjust=False).mean()
-        width = _atr(prices, period) * 1.5
+        width = _atr(ohlc, period) * 1.5
         return pd.Series(np.select([prices > mean + width, prices < mean - width],
                                    [1.0, -1.0], default=0.0), index=prices.index)
     if strategy == "SMC Fair Value Gap (FVG)":
-        gap = float(smc["fvg_min_pip_gap"]) / 10000
-        bullish = prices > prices.shift(2) * (1 + gap)
-        bearish = prices < prices.shift(2) * (1 - gap)
+        gap = float(smc["fvg_min_pip_gap"]) * PIP_SIZE
+        bullish = ohlc["high"].shift(2) < ohlc["low"] - gap
+        bearish = ohlc["low"].shift(2) > ohlc["high"] + gap
         return pd.Series(np.select([bullish, bearish], [1.0, -1.0], default=0.0), index=prices.index)
     if strategy == "SMC Liquidity Order Block Breakout":
         lookback = int(smc["order_block_lookback"])
@@ -152,41 +204,65 @@ def _strategy_signal(prices: pd.Series, strategy: str,
     return np.sign(drift).fillna(0.0)
 
 
-def backtest_strategy(prices: pd.Series, strategy: str, timeframe: str,
+def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe: str,
                       indicator_params: dict[str, Any] | None = None,
                       account_equity: float = 1000.0,
                       risk_per_trade_pct: float = 1.0) -> dict[str, float]:
-    series = prices.dropna().astype(float).sort_index()
+    ohlc = _ohlc_data(prices).dropna().astype(float).sort_index()
+    series = ohlc["close"]
     if len(series) < 80:
         raise ValueError(f"Not enough {timeframe} observations for {strategy}")
     params = indicator_params or load_indicator_params()
     signal = pd.Series(_strategy_signal(series, strategy, params), index=series.index).shift(1).fillna(0.0)
     prices_delta = series.diff().fillna(0.0)
     atr_period = int(params["atr"]["period"])
-    stop_distance = _atr(series, atr_period).shift(1)
+    stop_distance = _atr(ohlc, atr_period).shift(1)
     fallback_distance = series.shift(1).abs() * 0.001
     stop_distance = stop_distance.fillna(fallback_distance).clip(lower=0.01)
-    pip_size = 0.01
-    pip_value = 1.0
+    pip_size = PIP_SIZE
+    pip_value = PIP_VALUE_PER_LOT
     current_equity = max(float(account_equity), 0.01)
     starting_equity = current_equity
     equity_values = [current_equity]
     trade_pnls: list[float] = []
     trade_lots: list[float] = []
-    for direction, price_change, distance in zip(
-        signal.to_numpy(), prices_delta.to_numpy(), stop_distance.to_numpy(),
-    ):
-        if not direction or not np.isfinite(price_change) or not np.isfinite(distance):
-            equity_values.append(current_equity)
-            continue
-        risk_dollars = current_equity * max(float(risk_per_trade_pct), 0.0) / 100.0
-        stop_pips = max(float(distance) / pip_size, 1.0)
-        lot_size = risk_dollars / (stop_pips * pip_value)
-        pip_change = float(price_change) / pip_size
-        trade_pnl = float(direction) * lot_size * pip_change * pip_value
-        current_equity = max(current_equity + trade_pnl, 0.01)
-        trade_pnls.append(trade_pnl)
-        trade_lots.append(lot_size)
+    transaction_costs = 0.0
+    closed_trades: list[dict[str, float]] = []
+    position: dict[str, float] | None = None
+    for index in range(1, len(ohlc)):
+        direction = float(signal.iloc[index])
+        bar = ohlc.iloc[index]
+        if position is None and direction:
+            entry = float(bar["open"]) + (SLIPPAGE_PIPS * pip_size * direction)
+            distance = max(float(stop_distance.iloc[index]), pip_size)
+            risk_dollars = current_equity * max(float(risk_per_trade_pct), 0.0) / 100.0
+            stop_pips = max(distance / pip_size, 1.0)
+            lot_size = risk_dollars / (stop_pips * pip_value)
+            transaction_costs += (SPREAD_PIPS + SLIPPAGE_PIPS) * pip_size / pip_size * lot_size * pip_value
+            position = {
+                "direction": direction, "entry": entry, "stop": entry - direction * distance,
+                "target": entry + direction * distance * 2.0, "lots": lot_size,
+            }
+        if position is not None:
+            direction = position["direction"]
+            stop_hit = (bar["low"] <= position["stop"] if direction > 0 else
+                        bar["high"] >= position["stop"])
+            target_hit = (bar["high"] >= position["target"] if direction > 0 else
+                          bar["low"] <= position["target"])
+            reversal = direction * float(signal.iloc[index]) < 0
+            if stop_hit or target_hit or reversal or index == len(ohlc) - 1:
+                exit_price = position["stop"] if stop_hit else position["target"] if target_hit else float(bar["close"])
+                exit_price -= direction * (SPREAD_PIPS + SLIPPAGE_PIPS) * pip_size
+                transaction_costs += (
+                    (SPREAD_PIPS + SLIPPAGE_PIPS)
+                    * position["lots"] * pip_value
+                )
+                pnl = direction * (exit_price - position["entry"]) / pip_size * position["lots"] * pip_value
+                current_equity = max(current_equity + pnl, 0.01)
+                closed_trades.append({"pnl": pnl, "lots": position["lots"]})
+                trade_pnls.append(pnl)
+                trade_lots.append(position["lots"])
+                position = None
         equity_values.append(current_equity)
     equity = pd.Series(equity_values, index=range(len(equity_values)))
     trade_returns = pd.Series(trade_pnls, dtype=float)
@@ -208,6 +284,8 @@ def backtest_strategy(prices: pd.Series, strategy: str, timeframe: str,
         "risk_per_trade_pct": float(risk_per_trade_pct),
         "final_equity": float(current_equity),
         "average_lot_size": float(np.mean(trade_lots)) if trade_lots else 0.0,
+        "closed_trade_count": float(len(trade_pnls)),
+        "transaction_costs": float(transaction_costs),
     }
 
 

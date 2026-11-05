@@ -46,6 +46,18 @@ MIN_GOLD_PRICE = 2500.0
 MAX_GOLD_PRICE = 6500.0
 MAX_ANNUALIZED_VOLATILITY = 0.35
 VOLATILITY_MEAN_REVERSION = 0.92
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (np.integer, np.floating)):
+        value = value.item()
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
 if modal is not None:
     image = modal.Image.debian_slim(python_version="3.11").pip_install(
         "neuralforecast==1.7.5", "transformers", "torch", "yfinance", "requests", "pandas", "numpy",
@@ -109,9 +121,10 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
     prices = _returns_to_prices(last_price, median_returns)
     result = pd.DataFrame(index=dates)
     result["q0.5"] = prices
-    result["q0.1"], result["q0.9"] = _volatility_envelope(
-        result["q0.5"], returns, drift,
-    )
+    if diagnostics["model_used"] != "NeuralForecast_TFT":
+        result["q0.1"], result["q0.9"] = _volatility_envelope(
+            result["q0.5"], returns, drift,
+        )
     diagnostics: dict[str, Any] = {
         "model_used": "calibrated_fallback",
         "train_loss": None,
@@ -187,6 +200,7 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
         train = features.reset_index(names="ds")[["ds", "gold_close"]].copy()
         train["y"] = np.log(train["gold_close"]).diff().fillna(0.0)
         train["unique_id"] = "XAUUSD"
+        hist_exog_list: list[str] = []
         model = TFT(h=horizon, input_size=min(60, max(20, len(train) // 4)),
                     max_steps=500, val_check_steps=10, loss=MQLoss(level=[10, 50, 90]),
                     learning_rate=1e-4, dropout=0.30, optimizer_kwargs={"weight_decay": 1e-4},
@@ -231,6 +245,11 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
             "valid_loss": valid_loss,
             "validation_size": validation_size,
             "target_transform": "log_return",
+            "hist_exog_list": hist_exog_list,
+            "feature_structure": (
+                "univariate_gold_log_return; macro features are retained in the "
+                "feature frame for downstream risk and sentiment layers"
+            ),
             "early_stopping": {"patience": 15, "monitor": "ptl/val_loss"},
             "early_stopping_triggered": metrics_capture.global_step < 500,
             "overfit_check": (
@@ -252,9 +271,10 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
             result["q0.9"] = _returns_to_prices(last_price, ordered_returns[:, 2])
     except (AttributeError, ImportError, OSError, RuntimeError, ValueError, KeyError, TypeError) as error:
         diagnostics["fallback_reason"] = f"{type(error).__name__}: {error}"
-    result["q0.1"], result["q0.9"] = _volatility_envelope(
-        result["q0.5"], returns, drift,
-    )
+    if diagnostics["model_used"] != "NeuralForecast_TFT":
+        result["q0.1"], result["q0.9"] = _volatility_envelope(
+            result["q0.5"], returns, drift,
+        )
     return result, diagnostics
 
 
@@ -273,9 +293,10 @@ def _monte_carlo(last_price: float, forecast: pd.DataFrame,
         base = torch.tensor(forecast["q0.5"].to_numpy(), device=device, dtype=torch.float32)
         shocks = torch.randn((simulations, horizon), generator=generator, device=device) * step_volatility
         deviations = torch.zeros_like(shocks)
+        rho = 0.65
         for step in range(horizon):
             previous = deviations[:, step - 1] if step else 0.0
-            deviations[:, step] = VOLATILITY_MEAN_REVERSION * previous + shocks[:, step]
+            deviations[:, step] = rho * previous + shocks[:, step]
         paths = base.unsqueeze(0) * torch.exp(deviations)
         paths = torch.clamp(paths, min=floor, max=ceiling)
         terminal = paths[:, -1]
@@ -285,9 +306,10 @@ def _monte_carlo(last_price: float, forecast: pd.DataFrame,
         rng = np.random.default_rng(42)
         shocks = rng.normal(0.0, step_volatility, (simulations, horizon))
         deviations = np.zeros_like(shocks)
+        rho = 0.65
         for step in range(horizon):
             previous = deviations[:, step - 1] if step else 0.0
-            deviations[:, step] = VOLATILITY_MEAN_REVERSION * previous + shocks[:, step]
+            deviations[:, step] = rho * previous + shocks[:, step]
         paths = forecast["q0.5"].to_numpy()[None, :] * np.exp(deviations)
         paths = np.clip(paths, floor, ceiling)
         terminal_np = paths[:, -1]
@@ -468,7 +490,10 @@ if modal is not None:
         default_period, interval = TIMEFRAME_FETCH[timeframe]
         period = default_period if timeframe != "1D" else market_period
         market = fetch_market_data(period, interval=interval)
-        prices = normalize_timeframe_prices(market["gold_close"], timeframe)
+        market_prices = market[[column for column in (
+            "gold_open", "gold_high", "gold_low", "gold_close"
+        ) if column in market]]
+        prices = normalize_timeframe_prices(market_prices, timeframe)
         indicator_params = json.loads(indicator_params_json) if indicator_params_json else load_indicator_params()
         result = run_strategy_matrix(
             prices, [strategy], [timeframe], indicator_params,
@@ -508,7 +533,10 @@ if modal is not None:
                 "recommendation": f"{rows[0]['strategy']} / {rows[0]['timeframe']}",
             }
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(json.dumps(payload, indent=2, allow_nan=False), encoding="utf-8")
+            destination.write_text(
+                json.dumps(_json_safe(payload), indent=2, allow_nan=False),
+                encoding="utf-8",
+            )
             print(f"Modal A10G ensemble artifact: {destination}")
             for rank, row in enumerate(rows[:5], 1):
                 print(f"{rank}. {row['strategy']} / {row['timeframe']} | "
@@ -521,7 +549,10 @@ if modal is not None:
                                          account_equity=account_equity,
                                          risk_per_trade_pct=risk_per_trade_pct)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(json.dumps(payload, indent=2, allow_nan=False), encoding="utf-8")
+        destination.write_text(
+            json.dumps(_json_safe(payload), indent=2, allow_nan=False),
+            encoding="utf-8",
+        )
         _print_summary(payload, destination)
 else:  # pragma: no cover
     raise RuntimeError("Modal is required. Run with: python -m modal run macro_forecast_engine/modal_engine.py")

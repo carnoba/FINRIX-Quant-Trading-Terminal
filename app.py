@@ -371,7 +371,10 @@ def backtester() -> None:
         for timeframe in timeframes:
             period, interval = TIMEFRAME_FETCH[timeframe]
             market = fetch_market_data(period, interval=interval)
-            frames.append((timeframe, normalize_timeframe_prices(market["gold_close"], timeframe)))
+            market_prices = market[[column for column in (
+                "gold_open", "gold_high", "gold_low", "gold_close"
+            ) if column in market]]
+            frames.append((timeframe, normalize_timeframe_prices(market_prices, timeframe)))
     result = pd.concat(
         [run_strategy_matrix(
             prices, strategies, [timeframe], INDICATOR_PARAMS,
@@ -436,7 +439,10 @@ def ensemble() -> None:
             for timeframe in ("15m", "1h", "4h", "1D"):
                 period, interval = TIMEFRAME_FETCH[timeframe]
                 market = fetch_market_data(period, interval=interval)
-                prices = normalize_timeframe_prices(market["gold_close"], timeframe)
+                market_prices = market[[column for column in (
+                    "gold_open", "gold_high", "gold_low", "gold_close"
+                ) if column in market]]
+                prices = normalize_timeframe_prices(market_prices, timeframe)
                 matrix = run_strategy_matrix(
                     prices, list(STRATEGIES), [timeframe], INDICATOR_PARAMS,
                     CONFIG["account_equity"], CONFIG["risk_per_trade_pct"],
