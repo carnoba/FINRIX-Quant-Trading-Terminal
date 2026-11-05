@@ -1,101 +1,94 @@
 # FINRIX XAUUSD Quant Trading Terminal
 
-Cloud-native XAUUSD forecasting using a multi-horizon NeuralForecast TFT, FinBERT macro sentiment, FRED real yields and curve spreads, CFTC positioning, ETF flows, and yfinance market data. Training, inference, sentiment scoring, Monte Carlo simulation, and SMC overlays run inside a Modal A10G GPU worker.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100-rc1/)
+[![Modal GPU Sync](https://img.shields.io/badge/Modal-GPU%20A10G-orange.svg)](https://modal.com/)
+[![Zero-Trust Audit PASSED](https://img.shields.io/badge/Audit-PASSED-brightgreen.svg)](FINRIX_SECURITY_AND_QA_AUDIT_REPORT.md)
+[![14-Strategy Engine](https://img.shields.io/badge/Strategies-14-brightgreen.svg)](macro_forecast_engine/)
 
-## Architecture
+## One-Line Execution
 
-- **Market factors:** Gold futures, DXY, GVZ, GLD, and IAU daily prices/volume.
-- **Macro factors:** FRED `DFII10` real yields and `DGS10-DGS2` curve spread.
-- **Positioning/news:** CFTC gold commercial/non-commercial net positioning and GPU FinBERT sentiment velocity.
-- **Forecast model:** NeuralForecast Temporal Fusion Transformer with q10/q50/q90 outputs.
-- **Risk analysis:** 100,000-path CUDA Monte Carlo corridors, drawdown probability, dynamic risk levels, and SMC zones.
-- **Execution:** Modal GPU function with output persisted to `data/macro_{mode}_forecast.json`.
-
-## Quickstart Execution Guide
-
-### Step 1: Clone and install
+Run the full FINRIX terminal directly from command line:
 
 ```bash
-git clone https://github.com/carnoba/trading-prediction.git
-cd trading-prediction
-pip install -r requirements.txt
+finrix
 ```
 
-### Step 2: Configure Modal and FRED
-
-```bash
-modal setup
-modal secret create fred-secret FRED_API_KEY=your_key
-```
-
-The worker also supports the public FRED CSV endpoint when no key is supplied. Never commit real credentials.
-
-### Step 3: Run a forecast
-
-Daily forecast (30 business days):
-
-```bash
-python -m modal run macro_forecast_engine/modal_engine.py --mode daily
-```
-
-Monthly forecast (22 business days):
-
-```bash
-python -m modal run macro_forecast_engine/modal_engine.py --mode monthly
-```
-
-Yearly forecast (252 business days):
-
-```bash
-python -m modal run macro_forecast_engine/modal_engine.py --mode yearly
-```
-
-### Interactive terminal application
-
-Launch the green Rich/questionary terminal:
+Or launch the Rich/questionary terminal:
 
 ```bash
 python app.py
 ```
 
-On Windows, add the repository directory to `PATH` once, then launch directly:
+The System Settings menu controls Modal A10G vs local CPU, default equity, and risk per trade -- all forecast actions use saved values automatically.
 
-```cmd
-finrix
-```
+## Core Architecture & Key Features
 
-FINRIX creates and persists `data/finrix_config.json`. The System Settings menu
-controls Modal A10G versus local CPU execution, default account equity, and
-default risk per trade. Forecast actions use those saved values automatically.
+### Dual-Path Execution Engine
 
-The menu can submit live Daily, Monthly, and Yearly Modal GPU forecasts, inspect
-FinBERT news sentiment, calculate dynamic SMC/TFT execution levels and Kelly
-sizing, replay historical strategies without lookahead, and display this guide.
+- **Local CPU** -- Lightweight drift & baseline execution, runs instantly on any machine
+- **Modal A10G Cloud GPU** -- NeuralForecast TFT deep learning, 100,000-path CUDA Monte Carlo, CUDA-accelerated quantile regression
 
-## Output
+### Quantile Forecasting Envelope
 
-Each mode writes `data/macro_{mode}_forecast.json`. The JSON contains:
+Monotonic price corridors $q_{10} \le q_{50} \le q_{90}$ with dynamic volatility decay across daily (30 business days), monthly (22 business days), and yearly (252 business days) horizons.
 
-```json
-{
-  "execution_environment": "Modal GPU A10G",
-  "mode": "daily",
-  "data": {"horizon": 30, "horizon_unit": "business_days"},
-  "monte_carlo": {
-    "target_price": 4500.0,
-    "target_low": 4200.0,
-    "target_high": 4800.0,
-    "drawdown_probability": 12.4
-  },
-  "economic_events": {
-    "next_high_impact_title": "FOMC Rate Decision",
-    "next_high_impact_date": "2026-11-05T...",
-    "recommended_rerun_date": "2026-11-05T..."
-  }
-}
-```
+### Dynamic Equity-Based Position Sizing
 
-The terminal summary reports **Target Price**, **Volatility Range**, **Confirmed Bias**, **Confidence**, **Expected Trend Shift**, **Next High-Impact Event**, and **Recommended Re-Run Date**.
+Real-time dollar risk math with pip-based stop-loss/take-profit calculation, equity compounding, and fractional-Kelly allocation across 14 strategies.
+
+### 14-Strategy Backtesting & Parameter Engine
+
+All strategies persist to `data/finrix_indicator_params.json`:
+
+| Strategy | Indicators |
+|----------|------------|
+| SMC Fair Value Gap (FVG) | FVG detection, order block breakout |
+| SMC Liquidity Order Block Breakout | SSL/BSL liquidity pool detection |
+| EMA Golden Cross / Death Cross | Fast/slow EMA crossover, trend period |
+| Triple EMA Ribbon | Fast/medium/slow EMA ribbon dynamics |
+| RSI Mean Reversion | RSI period, overbought, oversold |
+| MACD Zero-Line & Signal Line Crossover | Fast/slow/signal MACD components |
+| Bollinger Bands Squeeze & Reversal | Period, standard deviation |
+| Supertrend ATR Trend Follower | ATR period, multiplier |
+| Stochastic Oscillator | K period, D period, slowing |
+| ADX + DI Trend Classifier | ADX period, DI threshold |
+| Ichimoku Cloud Kumo Breakout | Tenkan, Kijun, Senkou B periods |
+| ATR Volatility Expansion Channel | ATR period |
+| TFT Log-Return Trend | Temporal Fusion Transformer ML |
+| Volatility Parity & Risk-Adjusted Allocation | Volatility-normalized allocation |
+
+### Macro Sentiment Analysis
+
+Live RSS headlines processed via **FinBERT** NLP model with dovish/hawkish net score cancellation math. Fallback regex-based scoring when transformer models are unavailable.
+
+## Terminal Menu Workflow Guide (Options 1-8)
+
+| Option | Description |
+|--------|-------------|
+| **1** | Instant Execution Card -- Kelly Position Sizing, dynamic Entry bounds, Dynamic SL (exact pip distance), Risk:Reward ratios |
+| **2** | Daily Price Path & Signals -- 30-day forward forecast with quantile monotonicity ($q_{10} \le q_{50} \le q_{90}$) |
+| **3** | Monthly Macro Horizon -- 22-day outlook & weekly pivots with dynamic bias calculation |
+| **4** | Yearly Regime Trend Shift -- 252-day forecast with volatility envelopes, $q_{90}$ capped at 6500 |
+| **5** | Macro News & FinBERT Sentiment -- Live RSS headline aggregation, Dovish/Hawkish score cancellation |
+| **6** | Risk & Position Sizing Calculator -- Custom market price overrides, pip distance math, zero static hardcoded outputs |
+| **7** | Historical Strategy Backtester -- All 14 strategies across 15m, 1h, 4h, 1D timeframes, dynamic lot sizing |
+| **8** | Multi-Strategy Ensemble Analyzer -- Top 5 leaderboard, dynamic header title (Local CPU vs Modal A10G), all strategies |
+
+### System Settings
+
+- Toggle execution environment (local/modal)
+- Set default account equity
+- Set default risk per trade %
+- Customize indicator parameters (all 10 groups with limits)
+- Save & apply settings persistence via `data/finrix_config.json`
+
+## Future Roadmap
+
+- **Multi-asset expansion** -- Forex pairs, Crypto indices, Equity indices
+- **Direct MetaTrader 5 (MT5) execution bridge** & Webhook integration
+- **Automated portfolio rebalancing** with dynamic risk limits
+- **Walking-forward analysis** & rolling-origin backtesting
+- **Cluster deployment** across multiple Modal GPU workers
 
 ## Repository Layout
 
@@ -106,11 +99,27 @@ macro_forecast_engine/
 ├── data_loader.py        # Market, FRED, RSS, and sentiment ingestion
 ├── execution_layer.py    # Macro-bias signal filtering utilities
 ├── config.py             # Environment-backed configuration
-└── __init__.py
+├── indicator_params.py   # Persistent indicator parameter JSON
+├── finrix_config.py      # Terminal settings persistence
+├── trader_execution.py   # SMC + TFT execution levels
+├── trader_risk.py        # Kelly sizing & volatility parity
+├── trader_timemachine.py # Strategy replay & confidence scoring
+├── config.py
+├── __init__.py
 requirements.txt
 .env.example
+README.md (this file)
+FINRIX_SECURITY_AND_QA_AUDIT_REPORT.md
+data/
+├── finrix_config.json
+├── finrix_indicator_params.json
+├── macro_daily_forecast.json
+├── macro_month_forecast.json
+└── macro_year_forecast.json
+cache/
+gold_market_cache.csv
 ```
 
-## License
+--- 
 
 MIT License. See [LICENSE](LICENSE).
