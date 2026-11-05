@@ -109,7 +109,6 @@ macro_forecast_engine/
 requirements.txt
 .env.example
 README.md (this file)
-FINRIX_SECURITY_AND_QA_AUDIT_REPORT.md
 data/
 ├── finrix_config.json
 ├── finrix_indicator_params.json
