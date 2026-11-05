@@ -130,20 +130,6 @@ Also added `import math` at the top of the file.
 
 **Overall: PASS** - The FINRIX terminal passes the comprehensive audit with all critical vulnerabilities resolved.
 
-## Verification Commands
-
-```bash
-$ python -m compileall -q app.py macro_forecast_engine
-# No errors - all code compiles successfully
-
-$ git status
-# Only the two intentional fixes are modified:
-# - macro_forecast_engine/indicator_params.py (math import + isfinite guard)
-# - macro_forecast_engine/trader_risk.py (1e-9 minimum guards)
-
-$ git push origin main
-# Successfully pushed to origin main
-```
 **File:** `macro_forecast_engine/trader_risk.py`
 
 **Issue:** The `size_position()` function could raise `ZeroDivisionError` when `entry` price or price differences (`entry - lower`, `upper - entry`) were zero. This occurred when zero or near-zero prices were passed, causing `downside = max(entry - lower, entry * 1e-4)` to evaluate to 0, and then `reward_risk = upside / downside` to divide by zero.
