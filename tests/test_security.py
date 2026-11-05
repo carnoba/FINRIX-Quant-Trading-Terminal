@@ -2,6 +2,7 @@ import json
 import math
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from macro_forecast_engine.data_loader import _cache_path
@@ -36,6 +37,13 @@ def test_json_safe_is_json_serializable():
     encoded = json.dumps(value, allow_nan=False)
     assert "NaN" not in encoded
     assert "Infinity" not in encoded
+
+
+def test_json_safe_serializes_datetime_values():
+    value = _json_safe({"timestamp": pd.Timestamp("2024-01-02")})
+    encoded = json.dumps(value, allow_nan=False)
+    assert value["timestamp"] == "2024-01-02T00:00:00"
+    assert "2024-01-02" in encoded
 
 
 def test_corrupt_parameter_file_recovers(tmp_path):
