@@ -112,6 +112,14 @@ def _volatility_envelope(
 
 def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Forecast log-returns, then invert them into nominal price quantiles."""
+    diagnostics: dict[str, Any] = {
+        "model_used": "Baseline",
+        "status": "initialized",
+        "train_loss": None,
+        "valid_loss": None,
+        "overfit_check": "not_available",
+        "target_transform": "log_return",
+    }
     dates = _business_dates(features.index[-1], horizon)
     last_price = float(features["gold_close"].iloc[-1])
     returns = np.log1p(features["gold_return"].dropna()).tail(252)
@@ -125,13 +133,7 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
         result["q0.1"], result["q0.9"] = _volatility_envelope(
             result["q0.5"], returns, drift,
         )
-    diagnostics: dict[str, Any] = {
-        "model_used": "calibrated_fallback",
-        "train_loss": None,
-        "valid_loss": None,
-        "overfit_check": "not_available",
-        "target_transform": "log_return",
-    }
+    diagnostics.update({"model_used": "calibrated_fallback", "status": "fallback_ready"})
     try:
         from neuralforecast import NeuralForecast
         from neuralforecast.models import TFT
