@@ -21,8 +21,8 @@ def size_position(
     entry = float(entry)
     lower, median, upper = map(float, (q10, q50, q90))
     equity = max(float(equity), 0.0)
-    downside = max(entry - lower, entry * 1e-4)
-    upside = max(upper - entry, 0.0)
+    downside = max(entry - lower, entry * 1e-4, 1e-9)
+    upside = max(upper - entry, 0.0, 1e-9)
     win_probability = float(np.clip((median - lower) / max(upper - lower, 1e-9), 0.05, 0.95))
     reward_risk = upside / downside
     kelly = max(0.0, win_probability - (1.0 - win_probability) / max(reward_risk, 1e-9))

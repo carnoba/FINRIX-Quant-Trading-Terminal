@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,9 @@ def _coerce(value: Any, default: float | int) -> float | int:
     try:
         converted = float(value)
     except (TypeError, ValueError):
+        return default
+    # Guard against infinity and NaN - clamp to safe defaults
+    if not math.isfinite(converted):
         return default
     if isinstance(default, int):
         return int(round(converted))
