@@ -11,7 +11,7 @@ from macro_forecast_engine.indicator_params import (
     load_indicator_params,
     validate_indicator_params,
 )
-from macro_forecast_engine.modal_engine import _json_safe
+from macro_forecast_engine.json_utils import _json_safe
 
 
 def test_json_safe_coerces_numpy_scalars():

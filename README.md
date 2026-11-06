@@ -104,7 +104,7 @@ timeframe-specific caching, non-finite JSON coercion, and configuration
 sanitization.
 
 ```text
-198 passed
+204 passed
 ```
 
 Run the checks with:

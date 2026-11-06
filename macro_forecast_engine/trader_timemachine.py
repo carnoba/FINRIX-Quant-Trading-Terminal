@@ -268,8 +268,9 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
     stop_distance = _atr(ohlc, atr_period).shift(1)
     fallback_distance = series.shift(1).abs() * 0.001
     stop_distance = stop_distance.fillna(fallback_distance).clip(lower=0.01)
-    realized_volatility = series.pct_change().rolling(30).std()
-    target_volatility = 0.01
+    realized_volatility = series.pct_change().rolling(30).std().shift(1)
+    bars_per_day = {"1D": 1, "4h": 6, "1h": 23, "15m": 92}.get(timeframe, 1)
+    target_bar_volatility = 0.01 / np.sqrt(bars_per_day)
     pip_size = PIP_SIZE
     pip_value = PIP_VALUE_PER_LOT
     current_equity = max(float(account_equity), 0.01)
@@ -290,8 +291,14 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
             lot_size = risk_dollars / (distance * CONTRACT_SIZE_OUNCES)
             if strategy == "Volatility Parity & Risk-Adjusted Allocation":
                 realized = float(realized_volatility.iloc[index])
-                if np.isfinite(realized) and realized > 0:
-                    lot_size *= target_volatility / realized
+                vol_mult = np.clip(
+                    target_bar_volatility / max(realized, 1e-6)
+                    if np.isfinite(realized) else 1.0,
+                    0.25,
+                    2.0,
+                )
+                max_risk_lot_size = risk_dollars / (distance * CONTRACT_SIZE_OUNCES)
+                lot_size = min(lot_size * vol_mult, max_risk_lot_size)
             position = {
                 "direction": direction, "entry": entry, "stop": entry - direction * distance,
                 "target": entry + direction * distance * 2.0, "lots": lot_size,

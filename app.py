@@ -39,7 +39,7 @@ from macro_forecast_engine.indicator_params import (
 )
 from macro_forecast_engine.trader_execution import build_execution_plan
 from macro_forecast_engine.trader_risk import size_position
-from macro_forecast_engine.modal_engine import _json_safe
+from macro_forecast_engine.json_utils import _json_safe
 from macro_forecast_engine.trader_timemachine import (
     STRATEGIES, TIMEFRAME_FETCH, normalize_timeframe_prices, run_strategy_matrix,
     replay_forecasts, strategy_confidence,

@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +22,7 @@ try:
         STRATEGIES, TIMEFRAME_FETCH, normalize_timeframe_prices, run_strategy_matrix,
         strategy_confidence,
     )
+    from .json_utils import _json_safe
 except ImportError:  # Modal may load this file as a top-level script.
     from macro_forecast_engine.config import DATA_DIR, FINBERT_MODEL, HORIZONS
     from macro_forecast_engine.data_loader import (
@@ -36,6 +36,7 @@ except ImportError:  # Modal may load this file as a top-level script.
         STRATEGIES, TIMEFRAME_FETCH, normalize_timeframe_prices, run_strategy_matrix,
         strategy_confidence,
     )
+    from macro_forecast_engine.json_utils import _json_safe
 
 try:
     import modal
@@ -45,20 +46,6 @@ except ImportError:  # pragma: no cover
 APP_NAME = "xauusd-macro-quant-forecast"
 
 
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, (pd.Timestamp, datetime, date)):
-        return value.isoformat()
-    if value is pd.NaT:
-        return None
-    if isinstance(value, (np.integer, np.floating)):
-        value = value.item()
-    if isinstance(value, float) and not np.isfinite(value):
-        return None
-    return value
 if modal is not None:
     image = modal.Image.debian_slim(python_version="3.11").pip_install(
         "neuralforecast==1.7.5", "transformers", "torch", "yfinance", "requests", "pandas", "numpy",
@@ -120,8 +107,7 @@ def _tft_quantile_paths(
     q10, q50, q90 = (values[:horizon] for values in (q10, q50, q90))
     horizon = min(horizon, len(q10), len(q50), len(q90))
     q10, q50, q90 = q10[:horizon], q50[:horizon], q90[:horizon]
-    mu = float(np.nanmean(q50)) if horizon else 0.0
-    median = float(last_price) * np.exp(mu * np.arange(1, horizon + 1))
+    median = float(last_price) * np.exp(np.cumsum(np.nan_to_num(q50, nan=0.0)))
     learned_sigma = np.nanmean(np.maximum(q50 - q10, q90 - q50)) / z_score
     if historical_returns is not None:
         historical_sigma = float(pd.Series(historical_returns).dropna().tail(252).std())
@@ -577,10 +563,14 @@ if modal is not None:
             ))
             rows.sort(key=lambda row: (float(row["confidence"]),
                                        float(row["net_expected_return"])), reverse=True)
+            leaderboard = [
+                {key: value for key, value in row.items() if key != "closed_trades"}
+                for row in rows[:5]
+            ]
             payload = {
                 "execution_environment": "Modal GPU A10G",
                 "generated_at_utc": pd.Timestamp.now(tz="UTC").isoformat(),
-                "leaderboard": rows[:5],
+                "leaderboard": leaderboard,
                 "recommendation": f"{rows[0]['strategy']} / {rows[0]['timeframe']}",
             }
             destination.parent.mkdir(parents=True, exist_ok=True)
