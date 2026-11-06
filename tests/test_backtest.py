@@ -146,3 +146,41 @@ def test_exact_single_spread_deduction(monkeypatch):
         SPREAD_PIPS + SLIPPAGE_PIPS
     )
     assert trade["pnl"] == pytest.approx(-trade["transaction_cost"])
+
+
+@pytest.mark.parametrize("timeframe", ["15m", "1h", "1D"])
+def test_volatility_parity_timeframe_bounds(ohlc, timeframe):
+    result = backtest_strategy(
+        ohlc, "Volatility Parity & Risk-Adjusted Allocation", timeframe,
+        account_equity=10000, risk_per_trade_pct=1,
+    )
+    assert 0.25 <= result["volatility_multiplier_min"] <= 2.0
+    assert 0.25 <= result["volatility_multiplier_max"] <= 2.0
+
+
+def test_volatility_parity_entry_bar_immunity(monkeypatch, ohlc):
+    entry_index = 31
+    variants = []
+    for move in (0.0, 4.0, 40.0):
+        variant = ohlc.copy()
+        variant.iloc[entry_index, variant.columns.get_loc("gold_close")] += move
+        variants.append(variant)
+
+    def enter_once(prices, strategy, params):
+        signal = pd.Series(0.0, index=prices.index)
+        signal.iloc[entry_index - 1] = 1.0
+        return signal
+
+    monkeypatch.setattr(
+        "macro_forecast_engine.trader_timemachine._strategy_signal", enter_once,
+    )
+    results = [
+        backtest_strategy(
+            variant, "Volatility Parity & Risk-Adjusted Allocation", "1D",
+            account_equity=10000, risk_per_trade_pct=1,
+        )
+        for variant in variants
+    ]
+    lots = [result["closed_trades"][0]["lots"] for result in results]
+    assert lots[1] / lots[0] == pytest.approx(1.0)
+    assert lots[2] / lots[0] == pytest.approx(1.0)

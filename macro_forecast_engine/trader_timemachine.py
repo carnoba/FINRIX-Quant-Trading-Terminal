@@ -279,6 +279,7 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
     trade_pnls: list[float] = []
     trade_lots: list[float] = []
     transaction_costs = 0.0
+    volatility_multipliers: list[float] = []
     closed_trades: list[dict[str, Any]] = []
     position: dict[str, float] | None = None
     for index in range(1, len(ohlc)):
@@ -297,6 +298,7 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
                     0.25,
                     2.0,
                 )
+                volatility_multipliers.append(float(vol_mult))
                 max_risk_lot_size = risk_dollars / (distance * CONTRACT_SIZE_OUNCES)
                 lot_size = min(lot_size * vol_mult, max_risk_lot_size)
             position = {
@@ -366,6 +368,8 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
         "closed_trade_count": float(len(trade_pnls)),
         "transaction_costs": float(transaction_costs),
         "closed_trades": closed_trades,
+        "volatility_multiplier_min": min(volatility_multipliers, default=1.0),
+        "volatility_multiplier_max": max(volatility_multipliers, default=1.0),
     }
 
 

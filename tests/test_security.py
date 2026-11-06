@@ -46,6 +46,10 @@ def test_json_safe_serializes_datetime_values():
     assert "2024-01-02" in encoded
 
 
+def test_json_safe_converts_nat_to_none():
+    assert _json_safe(pd.NaT) is None
+
+
 def test_corrupt_parameter_file_recovers(tmp_path):
     path = tmp_path / "params.json"
     path.write_text("{bad", encoding="utf-8")

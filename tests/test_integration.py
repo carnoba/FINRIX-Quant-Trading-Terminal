@@ -1,6 +1,7 @@
 import json
 import importlib
 import sys
+import types
 
 import numpy as np
 import pandas as pd
@@ -8,7 +9,7 @@ import pytest
 
 from app import build_ensemble_payload
 from macro_forecast_engine.json_utils import _json_safe
-from macro_forecast_engine.modal_engine import _tft_quantile_paths
+from macro_forecast_engine.modal_engine import _quantile_forecast, _tft_quantile_paths
 from macro_forecast_engine.trader_timemachine import backtest_strategy
 
 
@@ -64,29 +65,63 @@ def test_same_bar_stop_loss_priority(monkeypatch):
     assert result["closed_trades"][0]["gross_pnl"] < 0
 
 
-@pytest.mark.parametrize("timeframe", ["15m", "1h", "1D"])
-def test_volatility_parity_timeframe_bounds(ohlc, timeframe):
-    from macro_forecast_engine.trader_timemachine import _strategy_signal
-    signal = _strategy_signal(ohlc, "Volatility Parity & Risk-Adjusted Allocation",
-                              __import__("macro_forecast_engine.indicator_params",
-                                         fromlist=["load_indicator_params"]).load_indicator_params())
-    assert set(signal.dropna().unique()).issubset({-1.0, 0.0, 1.0})
-    bars_per_day = {"15m": 92, "1h": 23, "1D": 1}[timeframe]
-    target = 0.01 / np.sqrt(bars_per_day)
-    realized = ohlc["gold_close"].pct_change().rolling(30).std().shift(1)
-    valid = realized.dropna()
-    multipliers = np.clip(target / valid.clip(lower=1e-6), 0.25, 2.0)
-    assert multipliers.min() >= 0.25
-    assert multipliers.max() <= 2.0
-    assert realized.iloc[30] != ohlc["gold_close"].pct_change().rolling(30).std().iloc[30]
-
-
 def test_tft_q50_trajectory_preservation():
-    q50 = np.linspace(-0.002, 0.003, 252)
-    lower, median, upper = _tft_quantile_paths(
-        4000.0, q50 - 0.002, q50, q50 + 0.002, 252,
-        pd.Series(q50),
-    )
-    assert not np.allclose(median, median[0])
-    assert np.all(lower < median)
-    assert np.all(median < upper)
+    horizon = 30
+    q50 = np.linspace(-0.002, 0.003, horizon)
+    prediction = pd.DataFrame({
+        "TFT-lo-80.0": q50 - 0.002,
+        "TFT-median": q50,
+        "TFT-hi-80.0": q50 + 0.002,
+    })
+
+    class FakeTFT:
+        def __init__(self, **kwargs):
+            self.train_trajectories = []
+            self.valid_trajectories = []
+
+    class FakeNeuralForecast:
+        def __init__(self, models, freq):
+            self.models = models
+
+        def fit(self, frame, val_size):
+            return self
+
+        def predict(self):
+            return prediction
+
+    class FakeCallback:
+        pass
+
+    class FakeEarlyStopping:
+        def __init__(self, **kwargs):
+            pass
+
+    fake_neuralforecast = types.ModuleType("neuralforecast")
+    fake_neuralforecast.NeuralForecast = FakeNeuralForecast
+    fake_models = types.ModuleType("neuralforecast.models")
+    fake_models.TFT = FakeTFT
+    fake_losses = types.ModuleType("neuralforecast.losses")
+    fake_losses_pytorch = types.ModuleType("neuralforecast.losses.pytorch")
+    fake_losses_pytorch.MQLoss = lambda **kwargs: kwargs
+    fake_lightning = types.ModuleType("pytorch_lightning")
+    fake_callbacks = types.ModuleType("pytorch_lightning.callbacks")
+    fake_callbacks.Callback = FakeCallback
+    fake_callbacks.EarlyStopping = FakeEarlyStopping
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setitem(sys.modules, "neuralforecast", fake_neuralforecast)
+    monkeypatch.setitem(sys.modules, "neuralforecast.models", fake_models)
+    monkeypatch.setitem(sys.modules, "neuralforecast.losses", fake_losses)
+    monkeypatch.setitem(sys.modules, "neuralforecast.losses.pytorch", fake_losses_pytorch)
+    monkeypatch.setitem(sys.modules, "pytorch_lightning", fake_lightning)
+    monkeypatch.setitem(sys.modules, "pytorch_lightning.callbacks", fake_callbacks)
+    try:
+        features = pd.DataFrame({
+            "gold_close": np.linspace(4000.0, 4100.0, 100),
+            "gold_return": np.full(100, 0.001),
+        }, index=pd.date_range("2026-01-01", periods=100, freq="D"))
+        result, diagnostics = _quantile_forecast(features, horizon)
+    finally:
+        monkeypatch.undo()
+    expected_median = 4100.0 * np.exp(np.cumsum(q50))
+    np.testing.assert_allclose(result["q0.5"].to_numpy(), expected_median, rtol=1e-12)
+    assert diagnostics["model_used"] == "NeuralForecast_TFT"
