@@ -105,29 +105,47 @@ def _volatility_envelope(
 
 def _tft_quantile_paths(
     last_price: float,
-    quantile_returns: np.ndarray,
-    historical_returns: pd.Series,
+    q10_returns: np.ndarray | pd.Series,
+    q50_returns: np.ndarray | pd.Series,
+    q90_returns: np.ndarray | pd.Series,
+    horizons: int | np.ndarray,
+    historical_returns: pd.Series | None = None,
     z_score: float = 1.2816,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Convert TFT return quantiles into a sqrt-time price corridor."""
-    ordered = np.sort(np.asarray(quantile_returns, dtype=float), axis=1)
-    median_returns = ordered[:, 1]
-    median = _returns_to_prices(last_price, median_returns)
-    learned_sigma = np.maximum(
-        np.abs(ordered[:, 1] - ordered[:, 0]),
-        np.abs(ordered[:, 2] - ordered[:, 1]),
-    ) / z_score
-    fallback_sigma = float(historical_returns.dropna().tail(252).std())
-    if not np.isfinite(fallback_sigma) or fallback_sigma <= 0:
-        fallback_sigma = 0.0
-    learned_sigma = np.where(
-        np.isfinite(learned_sigma) & (learned_sigma > 0),
-        learned_sigma,
-        fallback_sigma,
-    )
-    cumulative_sigma = np.sqrt(np.cumsum(np.square(learned_sigma)))
-    envelope = z_score * cumulative_sigma
+    """Build TFT price paths from daily drift and sqrt-time dispersion."""
+    q10 = np.asarray(q10_returns, dtype=float).reshape(-1)
+    q50 = np.asarray(q50_returns, dtype=float).reshape(-1)
+    q90 = np.asarray(q90_returns, dtype=float).reshape(-1)
+    horizon = int(horizons) if np.isscalar(horizons) else len(np.asarray(horizons))
+    q10, q50, q90 = (values[:horizon] for values in (q10, q50, q90))
+    horizon = min(horizon, len(q10), len(q50), len(q90))
+    q10, q50, q90 = q10[:horizon], q50[:horizon], q90[:horizon]
+    mu = float(np.nanmean(q50)) if horizon else 0.0
+    median = float(last_price) * np.exp(mu * np.arange(1, horizon + 1))
+    learned_sigma = np.nanmean(np.maximum(q50 - q10, q90 - q50)) / z_score
+    if historical_returns is not None:
+        historical_sigma = float(pd.Series(historical_returns).dropna().tail(252).std())
+    else:
+        historical_sigma = 0.0
+    sigma_daily = learned_sigma if np.isfinite(learned_sigma) and learned_sigma > 0 else historical_sigma
+    sigma_daily = max(float(sigma_daily) if np.isfinite(sigma_daily) else 0.0, 0.0)
+    envelope = z_score * sigma_daily * np.sqrt(np.arange(1, horizon + 1))
     return median * np.exp(-envelope), median, median * np.exp(envelope)
+
+
+def _resolve_tft_quantile_columns(columns: Any) -> tuple[Any, Any, Any] | None:
+    """Resolve NeuralForecast 1.7.5 and compatible TFT quantile labels."""
+    available = {str(column).lower(): column for column in columns}
+
+    def find(candidates: list[str]) -> Any:
+        return next((available[name.lower()] for name in candidates if name.lower() in available), None)
+
+    resolved = (
+        find(["TFT-lo-80.0", "TFT-q-0.1", "TFT-0.1"]),
+        find(["TFT-median", "TFT-q-0.5", "TFT-0.5"]),
+        find(["TFT-hi-80.0", "TFT-q-0.9", "TFT-0.9"]),
+    )
+    return resolved if all(column is not None for column in resolved) else None
 
 
 def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -283,25 +301,26 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
             ),
         }
         prediction = nf.predict()
-        columns = {str(column).lower(): column for column in prediction.columns}
-        quantiles = [
-            columns.get("tft-q-0.1"),
-            columns.get("tft-q-0.5"),
-            columns.get("tft-q-0.9"),
-        ]
-        if all(quantiles):
-            result["q0.1"] = _returns_to_prices(
-                last_price, prediction[quantiles[0]].to_numpy()[:horizon],
+        quantiles = _resolve_tft_quantile_columns(prediction.columns)
+        if quantiles:
+            lower, median, upper = _tft_quantile_paths(
+                last_price,
+                prediction[quantiles[0]].to_numpy(),
+                prediction[quantiles[1]].to_numpy(),
+                prediction[quantiles[2]].to_numpy(),
+                horizon,
+                returns,
             )
-            result["q0.5"] = _returns_to_prices(
-                last_price, prediction[quantiles[1]].to_numpy()[:horizon],
-            )
-            result["q0.9"] = _returns_to_prices(
-                last_price, prediction[quantiles[2]].to_numpy()[:horizon],
-            )
+            result["q0.1"], result["q0.5"], result["q0.9"] = lower, median, upper
+            diagnostics["model_used"] = "NeuralForecast_TFT"
+            diagnostics["status"] = "quantiles_extracted"
+        else:
+            diagnostics["model_used"] = "Baseline_Fallback"
+            diagnostics["status"] = "quantile_columns_unavailable"
     except (AttributeError, ImportError, OSError, RuntimeError, ValueError, KeyError, TypeError) as error:
         diagnostics["fallback_reason"] = f"{type(error).__name__}: {error}"
     if diagnostics["model_used"] != "NeuralForecast_TFT":
+        diagnostics["model_used"] = "Baseline_Fallback"
         result["q0.1"], result["q0.9"] = _volatility_envelope(
             result["q0.5"], returns, drift,
         )

@@ -39,6 +39,7 @@ from macro_forecast_engine.indicator_params import (
 )
 from macro_forecast_engine.trader_execution import build_execution_plan
 from macro_forecast_engine.trader_risk import size_position
+from macro_forecast_engine.modal_engine import _json_safe
 from macro_forecast_engine.trader_timemachine import (
     STRATEGIES, TIMEFRAME_FETCH, normalize_timeframe_prices, run_strategy_matrix,
     replay_forecasts, strategy_confidence,
@@ -456,12 +457,10 @@ def ensemble() -> None:
                     row["confidence"] = strategy_confidence(row)
                     rows.append(row)
         rows.sort(key=lambda row: (row["confidence"], row["net_expected_return"]), reverse=True)
-        path.write_text(json.dumps({
-            "execution_environment": "Local CPU",
-            "generated_at_utc": pd.Timestamp.now(tz="UTC").isoformat(),
-            "leaderboard": rows[:5],
-            "recommendation": f"{rows[0]['strategy']} / {rows[0]['timeframe']}",
-        }, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps(build_ensemble_payload(rows, "Local CPU"), indent=2, allow_nan=False),
+            encoding="utf-8",
+        )
     if not path.exists():
         raise FileNotFoundError(f"Ensemble artifact was not created: {path}")
     report = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -488,6 +487,20 @@ def ensemble() -> None:
         f"[green]Account equity:[/green] ${CONFIG['account_equity']:,.2f} | "
         f"[green]Risk per trade:[/green] {CONFIG['risk_per_trade_pct']:.2f}%"
     )
+
+
+def build_ensemble_payload(rows: list[dict[str, Any]], environment: str) -> dict[str, Any]:
+    """Create a lightweight, JSON-safe leaderboard artifact."""
+    ranked = [
+        {key: value for key, value in row.items() if key != "closed_trades"}
+        for row in rows[:5]
+    ]
+    return _json_safe({
+        "execution_environment": environment,
+        "generated_at_utc": pd.Timestamp.now(tz="UTC"),
+        "leaderboard": ranked,
+        "recommendation": f"{rows[0]['strategy']} / {rows[0]['timeframe']}",
+    })
 
 
 def setup_guide() -> None:

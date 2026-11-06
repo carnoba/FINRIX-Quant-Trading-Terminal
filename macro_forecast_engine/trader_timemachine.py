@@ -268,6 +268,8 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
     stop_distance = _atr(ohlc, atr_period).shift(1)
     fallback_distance = series.shift(1).abs() * 0.001
     stop_distance = stop_distance.fillna(fallback_distance).clip(lower=0.01)
+    realized_volatility = series.pct_change().rolling(30).std()
+    target_volatility = 0.01
     pip_size = PIP_SIZE
     pip_value = PIP_VALUE_PER_LOT
     current_equity = max(float(account_equity), 0.01)
@@ -276,7 +278,7 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
     trade_pnls: list[float] = []
     trade_lots: list[float] = []
     transaction_costs = 0.0
-    closed_trades: list[dict[str, float]] = []
+    closed_trades: list[dict[str, Any]] = []
     position: dict[str, float] | None = None
     for index in range(1, len(ohlc)):
         direction = float(signal.iloc[index])
@@ -286,9 +288,14 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
             distance = max(float(stop_distance.iloc[index]), pip_size)
             risk_dollars = current_equity * max(float(risk_per_trade_pct), 0.0) / 100.0
             lot_size = risk_dollars / (distance * CONTRACT_SIZE_OUNCES)
+            if strategy == "Volatility Parity & Risk-Adjusted Allocation":
+                realized = float(realized_volatility.iloc[index])
+                if np.isfinite(realized) and realized > 0:
+                    lot_size *= target_volatility / realized
             position = {
                 "direction": direction, "entry": entry, "stop": entry - direction * distance,
                 "target": entry + direction * distance * 2.0, "lots": lot_size,
+                "entry_timestamp": ohlc.index[index],
             }
         if position is not None:
             direction = position["direction"]
@@ -308,7 +315,7 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
                 pnl = gross_pnl - round_trip_cost
                 current_equity = max(current_equity + pnl, 0.01)
                 closed_trades.append({
-                    "entry_timestamp": ohlc.index[index],
+                    "entry_timestamp": position["entry_timestamp"],
                     "exit_timestamp": ohlc.index[index],
                     "gross_pnl": gross_pnl,
                     "transaction_cost": round_trip_cost,
