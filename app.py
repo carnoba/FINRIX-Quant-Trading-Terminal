@@ -255,6 +255,9 @@ def print_execution_card(payload: dict[str, Any], equity: float) -> None:
     table.add_row("TP1 / TP2 / TP3", " / ".join(f"${risk[key]:,.4f}" for key in
                                                 ("take_profit_1", "take_profit_2", "take_profit_3")))
     table.add_row("Lot Size", f"{sizing['lot_size']:.2f} Lots ({sizing['ounces']:.1f} oz)")
+    table.add_row("Actual Risk", f"{sizing['actual_risk_pct']:.4f}%")
+    if sizing.get("risk_warning"):
+        table.add_row("Risk Alert", sizing["risk_warning"])
     table.add_row("Confidence", f"{payload['confidence_score']:.2f}%")
     reward_ratio = float(risk.get("risk_reward", sizing.get("reward_risk", 0.0)))
     table.add_row("Risk : Reward", f"1 : {reward_ratio:.2f}")

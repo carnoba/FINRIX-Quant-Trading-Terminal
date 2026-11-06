@@ -14,24 +14,24 @@ from macro_forecast_engine.trader_risk import (
 @pytest.mark.parametrize("equity", [0, 1, 100, 1000, 10000, 100000])
 @pytest.mark.parametrize("risk", [0, 0.5, 1, 2, 5])
 def test_lot_size_is_finite_and_nonnegative(equity, risk):
-    value = calculate_lot_size(equity, risk, 20)
-    assert math.isfinite(value)
-    expected = 0.0 if equity == 0 else max(0.01, equity * risk / 100.0 / 2000.0)
-    assert value == pytest.approx(expected)
+    result = calculate_lot_size(equity, risk, 20)
+    assert math.isfinite(result["lot_size"])
+    expected = 0.0 if equity == 0 or risk == 0 else max(0.01, equity * risk / 100.0 / 2000.0)
+    assert result["lot_size"] == pytest.approx(expected)
 
 
 @pytest.mark.parametrize("risk", [0.5, 1, 2, 4])
 def test_lot_size_scales_with_risk(risk):
-    low = calculate_lot_size(10000, risk, 20)
-    high = calculate_lot_size(10000, risk * 2, 20)
+    low = calculate_lot_size(10000, risk, 20)["lot_size"]
+    high = calculate_lot_size(10000, risk * 2, 20)["lot_size"]
     assert high >= low
     assert high / low == pytest.approx(2, rel=0.01)
 
 
 @pytest.mark.parametrize("stop", [20, 50, 100, 200, 500])
 def test_lot_size_reduces_with_stop_distance(stop):
-    near = calculate_lot_size(10000, 1, stop)
-    far = calculate_lot_size(10000, 1, stop * 2)
+    near = calculate_lot_size(10000, 1, stop)["lot_size"]
+    far = calculate_lot_size(10000, 1, stop * 2)["lot_size"]
     assert near >= far
     assert near > 0
 
@@ -54,10 +54,23 @@ def test_gold_pip_definition():
     assert GOLD_PIP_SIZE == pytest.approx(0.10)
     assert GOLD_CONTRACT_SIZE_OUNCES == pytest.approx(100.0)
     assert GOLD_PIP_VALUE_PER_STANDARD_LOT == pytest.approx(10.0)
-    assert calculate_lot_size(10000, 1, 20) == pytest.approx(0.05)
+    assert calculate_lot_size(10000, 1, 20)["lot_size"] == pytest.approx(0.05)
 
 
 def test_lot_size_stop_loss_dollar_risk_is_exact():
-    lots = calculate_lot_size(10000, 1.0, 20.0)
+    lots = calculate_lot_size(10000, 1.0, 20.0)["lot_size"]
     loss = lots * 20.0 * GOLD_CONTRACT_SIZE_OUNCES
     assert loss == pytest.approx(100.0)
+
+
+def test_zero_risk_returns_zero_without_warning():
+    assert calculate_lot_size(10000, 0.0, 20.0) == {
+        "lot_size": 0.0, "actual_risk_pct": 0.0, "warning": None,
+    }
+
+
+def test_min_lot_floor_risk_warning():
+    result = calculate_lot_size(1000, 1.0, 50.0)
+    assert result["lot_size"] == pytest.approx(0.01)
+    assert result["actual_risk_pct"] == pytest.approx(5.0)
+    assert result["warning"]

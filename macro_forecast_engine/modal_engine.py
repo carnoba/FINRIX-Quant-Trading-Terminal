@@ -43,10 +43,6 @@ except ImportError:  # pragma: no cover
     modal = None
 
 APP_NAME = "xauusd-macro-quant-forecast"
-MIN_GOLD_PRICE = 2500.0
-MAX_GOLD_PRICE = 6500.0
-MAX_ANNUALIZED_VOLATILITY = 0.35
-TARGET_ANNUALIZED_VOLATILITY = 0.175
 
 
 def _json_safe(value: Any) -> Any:
@@ -95,13 +91,10 @@ def _volatility_envelope(
     clean_returns = pd.Series(log_returns, dtype=float).replace([np.inf, -np.inf], np.nan).dropna()
     if clean_returns.empty:
         clean_returns = pd.Series([drift], dtype=float)
-    historic = clean_returns.tail(252).std()
-    historic_sigma = float(historic) if np.isfinite(historic) else 0.175 / np.sqrt(252.0)
-    annualized_sigma = float(np.clip(
-        historic_sigma * np.sqrt(252.0),
-        TARGET_ANNUALIZED_VOLATILITY,
-        MAX_ANNUALIZED_VOLATILITY,
-    ))
+    historic_sigma = float(clean_returns.tail(252).std())
+    if not np.isfinite(historic_sigma):
+        historic_sigma = 0.0
+    annualized_sigma = historic_sigma * np.sqrt(252.0)
     daily_sigma = annualized_sigma / np.sqrt(252.0)
     steps = np.arange(1, len(median) + 1, dtype=float)
     envelope = z_score * daily_sigma * np.sqrt(steps)
@@ -126,7 +119,7 @@ def _tft_quantile_paths(
     ) / z_score
     fallback_sigma = float(historical_returns.dropna().tail(252).std())
     if not np.isfinite(fallback_sigma) or fallback_sigma <= 0:
-        fallback_sigma = TARGET_ANNUALIZED_VOLATILITY / np.sqrt(252.0)
+        fallback_sigma = 0.0
     learned_sigma = np.where(
         np.isfinite(learned_sigma) & (learned_sigma > 0),
         learned_sigma,
@@ -233,7 +226,7 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
         quantile_levels = [0.1, 0.5, 0.9]
         model = TFT(h=horizon, input_size=min(60, max(20, len(train) // 4)),
                     max_steps=500, val_check_steps=10,
-                    loss=MQLoss(level=[int(level * 100) for level in quantile_levels]),
+                    loss=MQLoss(quantiles=quantile_levels),
                     learning_rate=1e-4, dropout=0.30, optimizer_kwargs={"weight_decay": 1e-4},
                     optimizer=torch.optim.AdamW,
                     early_stop_patience_steps=15,
@@ -292,17 +285,20 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
         prediction = nf.predict()
         columns = {str(column).lower(): column for column in prediction.columns}
         quantiles = [
-            columns.get("tft-lo-90") or columns.get("tft-lo-10"),
-            columns.get("tft-median") or columns.get("tft-lo-50"),
-            columns.get("tft-hi-90") or columns.get("tft-hi-10"),
+            columns.get("tft-q-0.1"),
+            columns.get("tft-q-0.5"),
+            columns.get("tft-q-0.9"),
         ]
         if all(quantiles):
-            lower, median_path, upper = _tft_quantile_paths(
-                last_price, prediction[quantiles].to_numpy()[:horizon], returns,
+            result["q0.1"] = _returns_to_prices(
+                last_price, prediction[quantiles[0]].to_numpy()[:horizon],
             )
-            result["q0.1"] = lower
-            result["q0.5"] = median_path
-            result["q0.9"] = upper
+            result["q0.5"] = _returns_to_prices(
+                last_price, prediction[quantiles[1]].to_numpy()[:horizon],
+            )
+            result["q0.9"] = _returns_to_prices(
+                last_price, prediction[quantiles[2]].to_numpy()[:horizon],
+            )
     except (AttributeError, ImportError, OSError, RuntimeError, ValueError, KeyError, TypeError) as error:
         diagnostics["fallback_reason"] = f"{type(error).__name__}: {error}"
     if diagnostics["model_used"] != "NeuralForecast_TFT":
@@ -313,17 +309,16 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
 
 
 def _monte_carlo(last_price: float, forecast: pd.DataFrame,
-                 historical_returns: pd.Series, simulations: int = 100_000) -> dict[str, Any]:
+                 historical_returns: pd.Series,
+                 historical_prices: pd.Series | None = None,
+                 simulations: int = 100_000) -> dict[str, Any]:
     volatility = max(float(historical_returns.dropna().tail(252).std()), 1e-5)
     horizon = len(forecast)
-    annualized_volatility = float(np.clip(
-        volatility * np.sqrt(252.0),
-        TARGET_ANNUALIZED_VOLATILITY,
-        MAX_ANNUALIZED_VOLATILITY,
-    ))
+    annualized_volatility = volatility * np.sqrt(252.0)
     step_volatility = annualized_volatility / np.sqrt(252.0)
-    floor = max(MIN_GOLD_PRICE, last_price * 0.55)
-    ceiling = min(MAX_GOLD_PRICE, last_price * 1.60)
+    prices = pd.Series(historical_prices, dtype=float).dropna() if historical_prices is not None else pd.Series(dtype=float)
+    floor = max(float(prices.tail(252).min()) * 0.5, 1e-9) if not prices.empty else last_price * 0.5
+    ceiling = float(prices.tail(252).max()) * 2.0 if not prices.empty else last_price * 2.0
     try:
         import torch
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -410,7 +405,12 @@ def _run_worker(
         forecast["q0.5"] = trend_median
         forecast["q0.1"] = trend_median * np.exp(-1.2816 * local_volatility * np.sqrt(steps))
         forecast["q0.9"] = trend_median * np.exp(1.2816 * local_volatility * np.sqrt(steps))
-    mc = _monte_carlo(float(features["gold_close"].iloc[-1]), forecast, features["gold_return"])
+    mc = _monte_carlo(
+        float(features["gold_close"].iloc[-1]),
+        forecast,
+        features["gold_return"],
+        features["gold_close"],
+    )
     if local_trend and local_bias is not None and local_confidence is not None:
         mc["directional_bias"] = local_bias
         mc["confidence_score"] = local_confidence

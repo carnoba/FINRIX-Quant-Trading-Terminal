@@ -8,16 +8,20 @@ investment suitability.
 
 ## Reproducible Test Result
 
-The current pytest suite completed with **158 passed**:
+The current pytest suite completed with **195 passed**:
 
 ```text
 python -m pytest -q
-158 passed
+195 passed
 ```
 
 The suite includes genuine trade-based lifecycle checks with entry, open
 position tracking, SL/TP or reversal exits, spread/slippage deductions, and
 closed-trade-only metrics.
+
+Forecast corridors use sample historical return volatility with
+sigma * sqrt(t) diffusion, while TFT quantiles are explicitly mapped to
+0.1, 0.5, and 0.9 outputs.
 
 ## Executive Audit Summary
 

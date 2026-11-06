@@ -184,8 +184,8 @@ def _strategy_signal(prices: pd.Series | pd.DataFrame, strategy: str,
         return trend.fillna(0.0).clip(-1.0, 1.0)
     if strategy == "Stochastic Oscillator":
         k_period = int(stochastic["k_period"])
-        low = prices.rolling(k_period).min()
-        high = prices.rolling(k_period).max()
+        low = ohlc["low"].rolling(k_period).min()
+        high = ohlc["high"].rolling(k_period).max()
         k = 100 * (prices - low) / (high - low).replace(0, np.nan)
         d = k.rolling(int(stochastic["d_period"])).mean()
         return pd.Series(np.select([(k < 20) & (k > d), (k > 80) & (k < d)],
@@ -215,10 +215,10 @@ def _strategy_signal(prices: pd.Series | pd.DataFrame, strategy: str,
         tenkan = int(ichimoku["tenkan"])
         kijun = int(ichimoku["kijun"])
         senkou_b = int(ichimoku["senkou_b"])
-        conversion = (prices.rolling(tenkan).max() + prices.rolling(tenkan).min()) / 2
-        base = (prices.rolling(kijun).max() + prices.rolling(kijun).min()) / 2
+        conversion = (ohlc["high"].rolling(tenkan).max() + ohlc["low"].rolling(tenkan).min()) / 2
+        base = (ohlc["high"].rolling(kijun).max() + ohlc["low"].rolling(kijun).min()) / 2
         span_a = ((conversion + base) / 2).shift(int(kijun))
-        span_b = ((prices.rolling(senkou_b).max() + prices.rolling(senkou_b).min()) / 2).shift(int(kijun))
+        span_b = ((ohlc["high"].rolling(senkou_b).max() + ohlc["low"].rolling(senkou_b).min()) / 2).shift(int(kijun))
         cloud_top = pd.concat([span_a, span_b], axis=1).max(axis=1)
         cloud_bottom = pd.concat([span_a, span_b], axis=1).min(axis=1)
         return pd.Series(np.select([prices > cloud_top, prices < cloud_bottom], [1.0, -1.0],
@@ -241,9 +241,15 @@ def _strategy_signal(prices: pd.Series | pd.DataFrame, strategy: str,
         return pd.Series(np.select([prices > upper, prices < lower], [1.0, -1.0],
                                    default=0.0), index=prices.index)
     if strategy == "Volatility Parity & Risk-Adjusted Allocation":
-        volatility = returns.rolling(30).std().replace(0, np.nan)
-        direction = np.sign(np.log1p(returns).rolling(30).mean())
-        return direction.where(volatility.notna(), 0.0).fillna(0.0).clip(-1.0, 1.0)
+        atr_short = _atr(ohlc, 14)
+        atr_long = _atr(ohlc, 50).replace(0, np.nan)
+        expansion = atr_short / atr_long
+        breakout_high = ohlc["high"].rolling(20).max().shift(1)
+        breakout_low = ohlc["low"].rolling(20).min().shift(1)
+        return pd.Series(np.select([
+            (expansion > 1.2) & (prices > breakout_high),
+            (expansion > 1.2) & (prices < breakout_low),
+        ], [1.0, -1.0], default=0.0), index=prices.index)
     drift = np.log1p(returns).rolling(30).mean()
     return np.sign(drift).fillna(0.0)
 
@@ -276,13 +282,10 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
         direction = float(signal.iloc[index])
         bar = ohlc.iloc[index]
         if position is None and direction:
-            entry = float(bar["open"]) + (SLIPPAGE_PIPS * pip_size * direction)
+            entry = float(bar["open"])
             distance = max(float(stop_distance.iloc[index]), pip_size)
             risk_dollars = current_equity * max(float(risk_per_trade_pct), 0.0) / 100.0
             lot_size = risk_dollars / (distance * CONTRACT_SIZE_OUNCES)
-            entry_cost = SPREAD_PIPS * pip_size * lot_size * CONTRACT_SIZE_OUNCES
-            current_equity = max(current_equity - entry_cost, 0.01)
-            transaction_costs += entry_cost
             position = {
                 "direction": direction, "entry": entry, "stop": entry - direction * distance,
                 "target": entry + direction * distance * 2.0, "lots": lot_size,
@@ -296,13 +299,22 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
             reversal = direction * float(signal.iloc[index]) < 0
             if stop_hit or target_hit or reversal or index == len(ohlc) - 1:
                 exit_price = position["stop"] if stop_hit else position["target"] if target_hit else float(bar["close"])
-                exit_price -= direction * (SPREAD_PIPS + SLIPPAGE_PIPS) * pip_size
-                exit_cost = SPREAD_PIPS * pip_size * position["lots"] * CONTRACT_SIZE_OUNCES
-                transaction_costs += exit_cost
-                pnl = direction * (exit_price - position["entry"]) * position["lots"] * CONTRACT_SIZE_OUNCES
-                pnl -= exit_cost
+                gross_pnl = direction * (exit_price - position["entry"]) * position["lots"] * CONTRACT_SIZE_OUNCES
+                round_trip_cost = (
+                    (SPREAD_PIPS + SLIPPAGE_PIPS)
+                    * pip_size * position["lots"] * CONTRACT_SIZE_OUNCES
+                )
+                transaction_costs += round_trip_cost
+                pnl = gross_pnl - round_trip_cost
                 current_equity = max(current_equity + pnl, 0.01)
-                closed_trades.append({"pnl": pnl, "lots": position["lots"]})
+                closed_trades.append({
+                    "entry_timestamp": ohlc.index[index],
+                    "exit_timestamp": ohlc.index[index],
+                    "gross_pnl": gross_pnl,
+                    "transaction_cost": round_trip_cost,
+                    "pnl": pnl,
+                    "lots": position["lots"],
+                })
                 trade_pnls.append(pnl)
                 trade_lots.append(position["lots"])
                 position = None
@@ -339,6 +351,7 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
         "average_lot_size": float(np.mean(trade_lots)) if trade_lots else 0.0,
         "closed_trade_count": float(len(trade_pnls)),
         "transaction_costs": float(transaction_costs),
+        "closed_trades": closed_trades,
     }
 
 

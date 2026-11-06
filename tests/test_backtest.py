@@ -3,7 +3,12 @@ import pandas as pd
 import pytest
 
 from macro_forecast_engine.trader_timemachine import (
+    CONTRACT_SIZE_OUNCES,
+    PIP_SIZE,
+    PIP_VALUE_PER_LOT,
     STRATEGIES,
+    SPREAD_PIPS,
+    SLIPPAGE_PIPS,
     _strategy_signal,
     backtest_strategy,
     normalize_timeframe_prices,
@@ -97,3 +102,47 @@ def test_sl_tp_lifecycle_on_directional_market(direction):
     assert result["closed_trade_count"] == int(result["closed_trade_count"])
     assert result["final_equity"] > 0
     assert (result["transaction_costs"] > 0) == (result["closed_trade_count"] > 0)
+
+
+def test_backtest_execution_truncation(ohlc):
+    full = backtest_strategy(ohlc, "RSI Mean Reversion", "1D", account_equity=10000)
+    truncated = backtest_strategy(ohlc.iloc[:-50], "RSI Mean Reversion", "1D", account_equity=10000)
+    cutoff = ohlc.index[-50]
+    full_history = [
+        trade for trade in full["closed_trades"]
+        if trade["exit_timestamp"] < cutoff
+    ]
+    truncated_history = [
+        trade for trade in truncated["closed_trades"]
+        if trade["exit_timestamp"] < cutoff
+    ]
+    assert len(full_history) == len(truncated_history)
+    for expected, actual in zip(full_history, truncated_history):
+        assert expected["entry_timestamp"] == actual["entry_timestamp"]
+        assert expected["exit_timestamp"] == actual["exit_timestamp"]
+        assert expected["pnl"] == pytest.approx(actual["pnl"], abs=1e-10)
+
+
+def test_exact_single_spread_deduction(monkeypatch):
+    index = pd.date_range("2025-01-01", periods=100, freq="D")
+    frame = pd.DataFrame({
+        "gold_open": 4000.0, "gold_high": 4000.0,
+        "gold_low": 4000.0, "gold_close": 4000.0,
+    }, index=index)
+
+    def one_flat_trade(prices, strategy, params):
+        signal = pd.Series(0.0, index=prices.index)
+        signal.iloc[0] = 1.0
+        return signal
+
+    monkeypatch.setattr(
+        "macro_forecast_engine.trader_timemachine._strategy_signal",
+        one_flat_trade,
+    )
+    result = backtest_strategy(frame, "TFT Log-Return Trend", "1D", account_equity=1000)
+    trade = result["closed_trades"][0]
+    assert trade["gross_pnl"] == pytest.approx(0.0)
+    assert trade["transaction_cost"] / trade["lots"] / PIP_VALUE_PER_LOT == pytest.approx(
+        SPREAD_PIPS + SLIPPAGE_PIPS
+    )
+    assert trade["pnl"] == pytest.approx(-trade["transaction_cost"])
