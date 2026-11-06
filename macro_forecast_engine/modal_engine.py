@@ -46,7 +46,7 @@ APP_NAME = "xauusd-macro-quant-forecast"
 MIN_GOLD_PRICE = 2500.0
 MAX_GOLD_PRICE = 6500.0
 MAX_ANNUALIZED_VOLATILITY = 0.35
-VOLATILITY_MEAN_REVERSION = 0.92
+TARGET_ANNUALIZED_VOLATILITY = 0.175
 
 
 def _json_safe(value: Any) -> Any:
@@ -80,7 +80,7 @@ def _business_dates(last: pd.Timestamp, horizon: int) -> pd.DatetimeIndex:
 
 
 def _returns_to_prices(last_price: float, returns: np.ndarray) -> np.ndarray:
-    """Compound predicted log-returns back into nominal price levels."""
+    """Compound a median log-return path into nominal price levels."""
     return float(last_price) * np.exp(np.cumsum(np.asarray(returns, dtype=float), axis=0))
 
 
@@ -95,24 +95,46 @@ def _volatility_envelope(
     clean_returns = pd.Series(log_returns, dtype=float).replace([np.inf, -np.inf], np.nan).dropna()
     if clean_returns.empty:
         clean_returns = pd.Series([drift], dtype=float)
-    trailing = clean_returns.ewm(span=20, adjust=False).std().iloc[-1]
     historic = clean_returns.tail(252).std()
-    current_sigma = float(trailing) if np.isfinite(trailing) else 0.002
-    historic_sigma = float(historic) if np.isfinite(historic) else current_sigma
-    long_run_sigma = max(historic_sigma, 0.002)
-    current_sigma = max(current_sigma, 0.002)
+    historic_sigma = float(historic) if np.isfinite(historic) else 0.175 / np.sqrt(252.0)
+    annualized_sigma = float(np.clip(
+        historic_sigma * np.sqrt(252.0),
+        TARGET_ANNUALIZED_VOLATILITY,
+        MAX_ANNUALIZED_VOLATILITY,
+    ))
+    daily_sigma = annualized_sigma / np.sqrt(252.0)
     steps = np.arange(1, len(median) + 1, dtype=float)
-    dampening = np.exp(-steps / 30.0)
-    max_daily_sigma = MAX_ANNUALIZED_VOLATILITY / np.sqrt(252.0)
-    sigma_path = np.minimum(
-        long_run_sigma + (current_sigma - long_run_sigma) * dampening,
-        max_daily_sigma,
-    )
-    cumulative_sigma = np.sqrt(np.cumsum(np.square(sigma_path)))
-    envelope = z_score * cumulative_sigma
+    envelope = z_score * daily_sigma * np.sqrt(steps)
     lower = median * np.exp(-envelope)
     upper = median * np.exp(envelope)
     return np.minimum(lower, median), np.maximum(upper, median)
+
+
+def _tft_quantile_paths(
+    last_price: float,
+    quantile_returns: np.ndarray,
+    historical_returns: pd.Series,
+    z_score: float = 1.2816,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Convert TFT return quantiles into a sqrt-time price corridor."""
+    ordered = np.sort(np.asarray(quantile_returns, dtype=float), axis=1)
+    median_returns = ordered[:, 1]
+    median = _returns_to_prices(last_price, median_returns)
+    learned_sigma = np.maximum(
+        np.abs(ordered[:, 1] - ordered[:, 0]),
+        np.abs(ordered[:, 2] - ordered[:, 1]),
+    ) / z_score
+    fallback_sigma = float(historical_returns.dropna().tail(252).std())
+    if not np.isfinite(fallback_sigma) or fallback_sigma <= 0:
+        fallback_sigma = TARGET_ANNUALIZED_VOLATILITY / np.sqrt(252.0)
+    learned_sigma = np.where(
+        np.isfinite(learned_sigma) & (learned_sigma > 0),
+        learned_sigma,
+        fallback_sigma,
+    )
+    cumulative_sigma = np.sqrt(np.cumsum(np.square(learned_sigma)))
+    envelope = z_score * cumulative_sigma
+    return median * np.exp(-envelope), median, median * np.exp(envelope)
 
 
 def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -208,8 +230,10 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
         train["y"] = np.log(train["gold_close"]).diff().fillna(0.0)
         train["unique_id"] = "XAUUSD"
         hist_exog_list: list[str] = []
+        quantile_levels = [0.1, 0.5, 0.9]
         model = TFT(h=horizon, input_size=min(60, max(20, len(train) // 4)),
-                    max_steps=500, val_check_steps=10, loss=MQLoss(level=[10, 50, 90]),
+                    max_steps=500, val_check_steps=10,
+                    loss=MQLoss(level=[int(level * 100) for level in quantile_levels]),
                     learning_rate=1e-4, dropout=0.30, optimizer_kwargs={"weight_decay": 1e-4},
                     optimizer=torch.optim.AdamW,
                     early_stop_patience_steps=15,
@@ -253,6 +277,7 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
             "validation_size": validation_size,
             "target_transform": "log_return",
             "hist_exog_list": hist_exog_list,
+            "quantiles": quantile_levels,
             "feature_structure": (
                 "univariate_gold_log_return; macro features are retained in the "
                 "feature frame for downstream risk and sentiment layers"
@@ -272,10 +297,12 @@ def _quantile_forecast(features: pd.DataFrame, horizon: int) -> tuple[pd.DataFra
             columns.get("tft-hi-90") or columns.get("tft-hi-10"),
         ]
         if all(quantiles):
-            ordered_returns = np.sort(prediction[quantiles].to_numpy()[:horizon], axis=1)
-            result["q0.1"] = _returns_to_prices(last_price, ordered_returns[:, 0])
-            result["q0.5"] = _returns_to_prices(last_price, ordered_returns[:, 1])
-            result["q0.9"] = _returns_to_prices(last_price, ordered_returns[:, 2])
+            lower, median_path, upper = _tft_quantile_paths(
+                last_price, prediction[quantiles].to_numpy()[:horizon], returns,
+            )
+            result["q0.1"] = lower
+            result["q0.5"] = median_path
+            result["q0.9"] = upper
     except (AttributeError, ImportError, OSError, RuntimeError, ValueError, KeyError, TypeError) as error:
         diagnostics["fallback_reason"] = f"{type(error).__name__}: {error}"
     if diagnostics["model_used"] != "NeuralForecast_TFT":
@@ -289,7 +316,11 @@ def _monte_carlo(last_price: float, forecast: pd.DataFrame,
                  historical_returns: pd.Series, simulations: int = 100_000) -> dict[str, Any]:
     volatility = max(float(historical_returns.dropna().tail(252).std()), 1e-5)
     horizon = len(forecast)
-    annualized_volatility = min(volatility * np.sqrt(252.0), MAX_ANNUALIZED_VOLATILITY)
+    annualized_volatility = float(np.clip(
+        volatility * np.sqrt(252.0),
+        TARGET_ANNUALIZED_VOLATILITY,
+        MAX_ANNUALIZED_VOLATILITY,
+    ))
     step_volatility = annualized_volatility / np.sqrt(252.0)
     floor = max(MIN_GOLD_PRICE, last_price * 0.55)
     ceiling = min(MAX_GOLD_PRICE, last_price * 1.60)
@@ -299,11 +330,7 @@ def _monte_carlo(last_price: float, forecast: pd.DataFrame,
         generator = torch.Generator(device=device).manual_seed(42)
         base = torch.tensor(forecast["q0.5"].to_numpy(), device=device, dtype=torch.float32)
         shocks = torch.randn((simulations, horizon), generator=generator, device=device) * step_volatility
-        deviations = torch.zeros_like(shocks)
-        rho = 0.65
-        for step in range(horizon):
-            previous = deviations[:, step - 1] if step else 0.0
-            deviations[:, step] = rho * previous + shocks[:, step]
+        deviations = torch.cumsum(shocks, dim=1)
         paths = base.unsqueeze(0) * torch.exp(deviations)
         paths = torch.clamp(paths, min=floor, max=ceiling)
         terminal = paths[:, -1]
@@ -312,11 +339,7 @@ def _monte_carlo(last_price: float, forecast: pd.DataFrame,
     except (ImportError, RuntimeError):
         rng = np.random.default_rng(42)
         shocks = rng.normal(0.0, step_volatility, (simulations, horizon))
-        deviations = np.zeros_like(shocks)
-        rho = 0.65
-        for step in range(horizon):
-            previous = deviations[:, step - 1] if step else 0.0
-            deviations[:, step] = rho * previous + shocks[:, step]
+        deviations = np.cumsum(shocks, axis=1)
         paths = forecast["q0.5"].to_numpy()[None, :] * np.exp(deviations)
         paths = np.clip(paths, floor, ceiling)
         terminal_np = paths[:, -1]
@@ -420,6 +443,7 @@ def _run_worker(
         rows[0]["expected_low_q10"], rows[0]["target_q50"], rows[0]["expected_high_q90"],
         equity=account_equity,
         risk_fraction=max(0.0, float(risk_per_trade_pct)) / 100.0,
+        stop_loss=execution["stop_loss"],
     )
     return {
         "execution_environment": "Modal GPU A10G",
@@ -457,7 +481,8 @@ def _print_summary(payload: dict[str, Any], output: Path) -> None:
           f"({payload['confidence_score']:.2f}%)")
     print(f"SMC Buy Reaction Zone  : {payload['buy_zone']}")
     print(f"SMC Sell Reaction Zone : {payload['sell_zone']}")
-    print(f"Kelly Position Size    : {payload['position_sizing']['units']:.6f} units/lots")
+    print(f"Lot Size               : {payload['position_sizing']['lot_size']:.2f} lots "
+          f"({payload['position_sizing']['ounces']:.1f} oz)")
     print(f"Dynamic SL             : {risk['stop_loss']:,.4f}")
     print(f"Dynamic TP1 / TP2 / TP3: {risk['take_profit_1']:,.4f} / "
           f"{risk['take_profit_2']:,.4f} / {risk['take_profit_3']:,.4f}")

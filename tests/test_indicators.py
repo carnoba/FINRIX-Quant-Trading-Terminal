@@ -20,7 +20,7 @@ def test_indicator_has_warmup_safe_values(ohlc, strategy):
     params = load_indicator_params()
     signal = _strategy_signal(ohlc, strategy, params)
     assert signal.notna().sum() > 0
-    assert signal.abs().max() <= 2
+    assert set(signal.dropna().unique()).issubset({-1.0, 0.0, 1.0})
 
 
 @pytest.mark.parametrize("period", [2, 7, 14, 28, 50, 100])
@@ -60,3 +60,16 @@ def test_ema_requires_trend_alignment(ohlc):
     signal = _strategy_signal(ohlc, "EMA Golden Cross / Death Cross", load_indicator_params())
     assert signal.isna().sum() == 0
     assert signal.abs().max() <= 1
+
+
+@pytest.mark.parametrize("strategy", STRATEGIES)
+def test_volatility_parity_and_all_signals_are_strictly_directional(ohlc, strategy):
+    signal = _strategy_signal(ohlc, strategy, load_indicator_params()).fillna(0.0)
+    assert set(signal.unique()).issubset({-1.0, 0.0, 1.0})
+
+
+def test_volatility_parity_does_not_scale_signal_by_volatility(ohlc):
+    signal = _strategy_signal(
+        ohlc, "Volatility Parity & Risk-Adjusted Allocation", load_indicator_params()
+    ).fillna(0.0)
+    assert set(signal.unique()).issubset({-1.0, 0.0, 1.0})

@@ -4,6 +4,7 @@ import pytest
 
 from macro_forecast_engine.trader_timemachine import (
     STRATEGIES,
+    _strategy_signal,
     backtest_strategy,
     normalize_timeframe_prices,
     run_strategy_matrix,
@@ -13,11 +14,13 @@ from macro_forecast_engine.trader_timemachine import (
 @pytest.mark.parametrize("strategy", STRATEGIES)
 def test_all_strategies_produce_closed_trade_metrics(ohlc, strategy):
     result = backtest_strategy(ohlc, strategy, "1D", account_equity=10000, risk_per_trade_pct=1)
-    assert result["closed_trade_count"] >= 0
-    assert result["transaction_costs"] >= 0
-    assert np.isfinite(result["final_equity"])
-    assert np.isfinite(result["net_expected_return"])
-    assert result["max_drawdown"] >= 0
+    assert result["closed_trade_count"] == int(result["closed_trade_count"])
+    assert result["final_equity"] > 0
+    assert result["net_expected_return"] == pytest.approx(
+        (result["final_equity"] / result["account_equity"] - 1.0) * 100.0
+    )
+    assert (result["transaction_costs"] > 0) == (result["closed_trade_count"] > 0)
+    assert np.isfinite(result["max_drawdown"])
 
 
 @pytest.mark.parametrize("risk", [0.5, 1, 2, 4])
@@ -46,9 +49,23 @@ def test_lookahead_safe_signal_is_shifted(ohlc):
     changed.iloc[0, changed.columns.get_loc("gold_close")] *= 1.5
     first = backtest_strategy(ohlc, "RSI Mean Reversion", "1D")
     second = backtest_strategy(changed, "RSI Mean Reversion", "1D")
-    assert first["closed_trade_count"] >= 0
-    assert second["closed_trade_count"] >= 0
     assert first["final_equity"] != second["final_equity"]
+
+
+@pytest.mark.parametrize("strategy", STRATEGIES)
+def test_true_lookahead_safety_prefix_is_identical(ohlc, strategy):
+    params = __import__(
+        "macro_forecast_engine.indicator_params",
+        fromlist=["load_indicator_params"],
+    ).load_indicator_params()
+    full = _strategy_signal(ohlc, strategy, params).fillna(0.0)
+    truncated = _strategy_signal(ohlc.iloc[:-50], strategy, params).fillna(0.0)
+    pd.testing.assert_series_equal(
+        truncated,
+        full.iloc[:-50],
+        check_names=False,
+        check_exact=True,
+    )
 
 
 @pytest.mark.parametrize("timeframe", ["15m", "1h", "4h", "1D"])
@@ -77,5 +94,6 @@ def test_sl_tp_lifecycle_on_directional_market(direction):
         "gold_close": close,
     }, index=index)
     result = backtest_strategy(frame, "TFT Log-Return Trend", "1D")
-    assert result["closed_trade_count"] >= 0
-    assert result["transaction_costs"] >= 0
+    assert result["closed_trade_count"] == int(result["closed_trade_count"])
+    assert result["final_equity"] > 0
+    assert (result["transaction_costs"] > 0) == (result["closed_trade_count"] > 0)

@@ -58,7 +58,8 @@ def normalize_timeframe_prices(prices: pd.Series | pd.DataFrame, timeframe: str)
 
 
 PIP_SIZE = 0.10
-PIP_VALUE_PER_LOT = 1.00
+CONTRACT_SIZE_OUNCES = 100.0
+PIP_VALUE_PER_LOT = PIP_SIZE * CONTRACT_SIZE_OUNCES
 SPREAD_PIPS = 1.5
 SLIPPAGE_PIPS = 0.5
 
@@ -152,9 +153,35 @@ def _strategy_signal(prices: pd.Series | pd.DataFrame, strategy: str,
                                     prices > mean + bollinger["std_dev"] * deviation],
                                    [1.0, -1.0], default=0.0), index=prices.index)
     if strategy == "Supertrend ATR Trend Follower":
-        mean = prices.rolling(int(supertrend["atr_period"])).mean()
-        width = _atr(ohlc, int(supertrend["atr_period"])) * supertrend["factor"]
-        return np.sign(prices - mean - width).where(prices.notna(), 0.0)
+        atr_value = _atr(ohlc, int(supertrend["atr_period"]))
+        midpoint = (ohlc["high"] + ohlc["low"]) / 2.0
+        upper_basic = midpoint + float(supertrend["factor"]) * atr_value
+        lower_basic = midpoint - float(supertrend["factor"]) * atr_value
+        upper = upper_basic.copy()
+        lower = lower_basic.copy()
+        trend = pd.Series(0.0, index=prices.index)
+        for index in range(1, len(prices)):
+            previous = prices.index[index - 1]
+            current = prices.index[index]
+            upper.loc[current] = (
+                upper_basic.loc[current]
+                if prices.loc[previous] > upper.loc[previous]
+                else min(upper_basic.loc[current], upper.loc[previous])
+            )
+            lower.loc[current] = (
+                lower_basic.loc[current]
+                if prices.loc[previous] < lower.loc[previous]
+                else max(lower_basic.loc[current], lower.loc[previous])
+            )
+            if trend.loc[previous] <= 0 and prices.loc[current] > upper.loc[previous]:
+                trend.loc[current] = 1.0
+            elif trend.loc[previous] >= 0 and prices.loc[current] < lower.loc[previous]:
+                trend.loc[current] = -1.0
+            else:
+                trend.loc[current] = trend.loc[previous] or (
+                    1.0 if prices.loc[current] >= midpoint.loc[current] else -1.0
+                )
+        return trend.fillna(0.0).clip(-1.0, 1.0)
     if strategy == "Stochastic Oscillator":
         k_period = int(stochastic["k_period"])
         low = prices.rolling(k_period).min()
@@ -165,19 +192,36 @@ def _strategy_signal(prices: pd.Series | pd.DataFrame, strategy: str,
                                    [1.0, -1.0], default=0.0), index=prices.index)
     if strategy == "ADX + DI Trend Classifier":
         period = int(adx["period"])
-        movement = prices.diff()
-        true_range = movement.abs().ewm(alpha=1 / period, adjust=False).mean()
-        directional = movement.ewm(alpha=1 / period, adjust=False).mean().abs()
-        adx_value = (directional / true_range.replace(0, np.nan) * 100).fillna(0.0)
-        return np.sign(movement).where(adx_value >= adx["threshold"], 0.0)
+        up_move = ohlc["high"].diff()
+        down_move = -ohlc["low"].diff()
+        plus_dm = up_move.where((up_move > down_move) & (up_move > 0.0), 0.0)
+        minus_dm = down_move.where((down_move > up_move) & (down_move > 0.0), 0.0)
+        previous_close = prices.shift(1)
+        true_range = pd.concat([
+            ohlc["high"] - ohlc["low"],
+            (ohlc["high"] - previous_close).abs(),
+            (ohlc["low"] - previous_close).abs(),
+        ], axis=1).max(axis=1)
+        atr_value = true_range.ewm(alpha=1 / period, adjust=False).mean()
+        plus_di = 100.0 * plus_dm.ewm(alpha=1 / period, adjust=False).mean() / atr_value
+        minus_di = 100.0 * minus_dm.ewm(alpha=1 / period, adjust=False).mean() / atr_value
+        dx = 100.0 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+        adx_value = dx.ewm(alpha=1 / period, adjust=False).mean()
+        return pd.Series(np.select([
+            (adx_value >= adx["threshold"]) & (plus_di > minus_di),
+            (adx_value >= adx["threshold"]) & (minus_di > plus_di),
+        ], [1.0, -1.0], default=0.0), index=prices.index)
     if strategy == "Ichimoku Cloud Kumo Breakout":
         tenkan = int(ichimoku["tenkan"])
         kijun = int(ichimoku["kijun"])
         senkou_b = int(ichimoku["senkou_b"])
         conversion = (prices.rolling(tenkan).max() + prices.rolling(tenkan).min()) / 2
         base = (prices.rolling(kijun).max() + prices.rolling(kijun).min()) / 2
-        cloud = ((prices.rolling(senkou_b).max() + prices.rolling(senkou_b).min()) / 2 + base) / 2
-        return pd.Series(np.select([prices > cloud, prices < cloud], [1.0, -1.0],
+        span_a = ((conversion + base) / 2).shift(int(kijun))
+        span_b = ((prices.rolling(senkou_b).max() + prices.rolling(senkou_b).min()) / 2).shift(int(kijun))
+        cloud_top = pd.concat([span_a, span_b], axis=1).max(axis=1)
+        cloud_bottom = pd.concat([span_a, span_b], axis=1).min(axis=1)
+        return pd.Series(np.select([prices > cloud_top, prices < cloud_bottom], [1.0, -1.0],
                                    default=0.0), index=prices.index)
     if strategy == "ATR Volatility Expansion Channel":
         period = int(atr["period"])
@@ -198,8 +242,8 @@ def _strategy_signal(prices: pd.Series | pd.DataFrame, strategy: str,
                                    default=0.0), index=prices.index)
     if strategy == "Volatility Parity & Risk-Adjusted Allocation":
         volatility = returns.rolling(30).std().replace(0, np.nan)
-        return (np.sign(np.log1p(returns).rolling(30).mean()) /
-                (volatility * np.sqrt(252))).clip(-2.0, 2.0).fillna(0.0)
+        direction = np.sign(np.log1p(returns).rolling(30).mean())
+        return direction.where(volatility.notna(), 0.0).fillna(0.0).clip(-1.0, 1.0)
     drift = np.log1p(returns).rolling(30).mean()
     return np.sign(drift).fillna(0.0)
 
@@ -213,8 +257,7 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
     if len(series) < 80:
         raise ValueError(f"Not enough {timeframe} observations for {strategy}")
     params = indicator_params or load_indicator_params()
-    signal = pd.Series(_strategy_signal(series, strategy, params), index=series.index).shift(1).fillna(0.0)
-    prices_delta = series.diff().fillna(0.0)
+    signal = pd.Series(_strategy_signal(ohlc, strategy, params), index=series.index).shift(1).fillna(0.0)
     atr_period = int(params["atr"]["period"])
     stop_distance = _atr(ohlc, atr_period).shift(1)
     fallback_distance = series.shift(1).abs() * 0.001
@@ -236,9 +279,10 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
             entry = float(bar["open"]) + (SLIPPAGE_PIPS * pip_size * direction)
             distance = max(float(stop_distance.iloc[index]), pip_size)
             risk_dollars = current_equity * max(float(risk_per_trade_pct), 0.0) / 100.0
-            stop_pips = max(distance / pip_size, 1.0)
-            lot_size = risk_dollars / (stop_pips * pip_value)
-            transaction_costs += (SPREAD_PIPS + SLIPPAGE_PIPS) * pip_size / pip_size * lot_size * pip_value
+            lot_size = risk_dollars / (distance * CONTRACT_SIZE_OUNCES)
+            entry_cost = SPREAD_PIPS * pip_size * lot_size * CONTRACT_SIZE_OUNCES
+            current_equity = max(current_equity - entry_cost, 0.01)
+            transaction_costs += entry_cost
             position = {
                 "direction": direction, "entry": entry, "stop": entry - direction * distance,
                 "target": entry + direction * distance * 2.0, "lots": lot_size,
@@ -253,24 +297,33 @@ def backtest_strategy(prices: pd.Series | pd.DataFrame, strategy: str, timeframe
             if stop_hit or target_hit or reversal or index == len(ohlc) - 1:
                 exit_price = position["stop"] if stop_hit else position["target"] if target_hit else float(bar["close"])
                 exit_price -= direction * (SPREAD_PIPS + SLIPPAGE_PIPS) * pip_size
-                transaction_costs += (
-                    (SPREAD_PIPS + SLIPPAGE_PIPS)
-                    * position["lots"] * pip_value
-                )
-                pnl = direction * (exit_price - position["entry"]) / pip_size * position["lots"] * pip_value
+                exit_cost = SPREAD_PIPS * pip_size * position["lots"] * CONTRACT_SIZE_OUNCES
+                transaction_costs += exit_cost
+                pnl = direction * (exit_price - position["entry"]) * position["lots"] * CONTRACT_SIZE_OUNCES
+                pnl -= exit_cost
                 current_equity = max(current_equity + pnl, 0.01)
                 closed_trades.append({"pnl": pnl, "lots": position["lots"]})
                 trade_pnls.append(pnl)
                 trade_lots.append(position["lots"])
                 position = None
-        equity_values.append(current_equity)
+        unrealized = 0.0
+        if position is not None:
+            unrealized = position["direction"] * (
+                float(bar["close"]) - position["entry"]
+            ) * position["lots"] * CONTRACT_SIZE_OUNCES
+        equity_values.append(max(current_equity + unrealized, 0.01))
     equity = pd.Series(equity_values, index=range(len(equity_values)))
     trade_returns = pd.Series(trade_pnls, dtype=float)
     wins = trade_returns[trade_returns > 0]
     losses = trade_returns[trade_returns < 0]
     drawdown = equity / equity.cummax() - 1.0
     strategy_returns = equity.pct_change().fillna(0.0)
-    periods = TIMEFRAME_PERIODS.get(timeframe, 252)
+    periods = {
+        "15m": 23184,
+        "1h": 5796,
+        "4h": 1449,
+        "1D": 252,
+    }.get(timeframe, 252)
     volatility = float(strategy_returns.std())
     return {
         "strategy": strategy, "timeframe": timeframe, "observations": float(len(series)),

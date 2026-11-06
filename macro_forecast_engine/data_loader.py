@@ -116,7 +116,7 @@ def fetch_market_data(period: str = "10y", interval: str = "1d") -> pd.DataFrame
         frames.append(data.rename(columns=available)[list(available.values())])
     frame = frames[0]
     for other in frames[1:]:
-        frame = frame.join(other, how="outer")
+        frame = frame.join(other, how="left")
     return frame.sort_index().ffill().dropna(subset=["gold_close"])
 
 

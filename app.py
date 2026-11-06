@@ -254,7 +254,7 @@ def print_execution_card(payload: dict[str, Any], equity: float) -> None:
     table.add_row("Dynamic SL", f"${risk['stop_loss']:,.4f}")
     table.add_row("TP1 / TP2 / TP3", " / ".join(f"${risk[key]:,.4f}" for key in
                                                 ("take_profit_1", "take_profit_2", "take_profit_3")))
-    table.add_row("Kelly Position Size", f"{sizing['units']:.6f} units (equity ${equity:,.2f})")
+    table.add_row("Lot Size", f"{sizing['lot_size']:.2f} Lots ({sizing['ounces']:.1f} oz)")
     table.add_row("Confidence", f"{payload['confidence_score']:.2f}%")
     reward_ratio = float(risk.get("risk_reward", sizing.get("reward_risk", 0.0)))
     table.add_row("Risk : Reward", f"1 : {reward_ratio:.2f}")
@@ -310,6 +310,7 @@ def today_signal() -> None:
         risk_fraction=CONFIG["risk_per_trade_pct"] / 100.0,
         kelly_fraction=0.25,
         micro_lot_floor=CONFIG["micro_lot_floor"],
+        stop_loss=payload["risk_levels"]["stop_loss"],
     )
     payload["position_sizing"] = sizing
     print_execution_card(payload, equity)
@@ -349,8 +350,9 @@ def execution_lookup() -> None:
                            row["expected_high_q90"], equity,
                            risk_fraction=max(0.0, risk_percent) / 100.0,
                            kelly_fraction=0.25,
-                           micro_lot_floor=CONFIG["micro_lot_floor"])
-    sizing["pip_risk"] = round(abs(price - plan["stop_loss"]) / 0.01, 2)
+                           micro_lot_floor=CONFIG["micro_lot_floor"],
+                           stop_loss=plan["stop_loss"])
+    sizing["pip_risk"] = round(abs(price - plan["stop_loss"]) / 0.10, 2)
     payload["risk_levels"] = plan
     payload["position_sizing"] = sizing
     print_execution_card(payload, equity)
