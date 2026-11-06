@@ -8,11 +8,11 @@ investment suitability.
 
 ## Reproducible Test Result
 
-The current pytest suite completed with **206 passed**:
+The current pytest suite completed with **207 passed**:
 
 ```text
 python -m pytest -q
-206 passed
+207 passed
 ```
 
 The suite includes genuine trade-based lifecycle checks with entry, open

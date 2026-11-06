@@ -159,7 +159,18 @@ def test_volatility_parity_timeframe_bounds(ohlc, timeframe):
 
 
 def test_volatility_parity_entry_bar_immunity(monkeypatch, ohlc):
-    entry_index = 31
+    entry_index = 80
+    historical_returns = np.where(
+        np.arange(len(ohlc)) < entry_index,
+        np.where(np.arange(len(ohlc)) % 2, 0.015, -0.015),
+        0.0,
+    )
+    historical_close = 4000.0 * np.exp(np.cumsum(historical_returns))
+    ohlc = ohlc.copy()
+    ohlc["gold_open"] = historical_close
+    ohlc["gold_close"] = historical_close
+    ohlc["gold_high"] = historical_close + 2.0
+    ohlc["gold_low"] = historical_close - 2.0
     variants = []
     for move in (0.0, 4.0, 40.0):
         variant = ohlc.copy()
@@ -184,3 +195,41 @@ def test_volatility_parity_entry_bar_immunity(monkeypatch, ohlc):
     lots = [result["closed_trades"][0]["lots"] for result in results]
     assert lots[1] / lots[0] == pytest.approx(1.0)
     assert lots[2] / lots[0] == pytest.approx(1.0)
+
+    unshifted_volatility = pd.concat(
+        [variant["gold_close"].pct_change().rolling(30).std().iloc[[entry_index]]
+         for variant in variants],
+    )
+    assert unshifted_volatility.iloc[1] != pytest.approx(unshifted_volatility.iloc[0])
+    assert unshifted_volatility.iloc[2] != pytest.approx(unshifted_volatility.iloc[0])
+
+
+def test_atr_stop_distance_current_bar_immunity(monkeypatch, ohlc):
+    entry_index = 80
+    base = ohlc.copy()
+    variants = []
+    for spread in (2.0, 200.0):
+        variant = base.copy()
+        close = float(variant.iloc[entry_index]["gold_close"])
+        variant.iloc[entry_index, variant.columns.get_loc("gold_high")] = close + spread
+        variant.iloc[entry_index, variant.columns.get_loc("gold_low")] = close - spread
+        variants.append(variant)
+
+    def enter_once(prices, strategy, params):
+        signal = pd.Series(0.0, index=prices.index)
+        signal.iloc[entry_index - 1] = 1.0
+        return signal
+
+    monkeypatch.setattr(
+        "macro_forecast_engine.trader_timemachine._strategy_signal", enter_once,
+    )
+    results = [
+        backtest_strategy(
+            variant, "ATR Volatility Expansion Channel", "1D",
+            account_equity=10000, risk_per_trade_pct=1,
+        )
+        for variant in variants
+    ]
+    assert results[0]["closed_trades"][0]["lots"] == pytest.approx(
+        results[1]["closed_trades"][0]["lots"]
+    )

@@ -66,6 +66,7 @@ def test_same_bar_stop_loss_priority(monkeypatch):
 
 
 def test_tft_q50_trajectory_preservation():
+    pytest.importorskip("torch")
     horizon = 30
     q50 = np.linspace(-0.002, 0.003, horizon)
     prediction = pd.DataFrame({
