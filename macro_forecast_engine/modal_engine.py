@@ -44,6 +44,11 @@ except ImportError:  # pragma: no cover
     modal = None
 
 APP_NAME = "xauusd-macro-quant-forecast"
+ARTIFACT_FILENAMES = {
+    "daily": "macro_daily_forecast.json",
+    "monthly": "macro_month_forecast.json",
+    "yearly": "macro_year_forecast.json",
+}
 
 
 if modal is not None:
@@ -543,13 +548,12 @@ if modal is not None:
     @app.local_entrypoint()
     def main(
         mode: str = "monthly",
-        output: str = "",
         market_period: str = "10y",
         account_equity: float = 100_000.0,
         risk_per_trade_pct: float = 1.0,
     ) -> None:
         if mode == "ensemble":
-            destination = Path(output) if output else DATA_DIR / "modal_ensemble.json"
+            destination = DATA_DIR / "modal_ensemble.json"
             indicator_params_json = json.dumps(load_indicator_params(), sort_keys=True)
             tasks = [(strategy, timeframe) for timeframe in ("15m", "1h", "4h", "1D")
                      for strategy in STRATEGIES]
@@ -583,8 +587,9 @@ if modal is not None:
                 print(f"{rank}. {row['strategy']} / {row['timeframe']} | "
                       f"win={row['win_rate']:.2f}% confidence={row['confidence']:.2f}%")
             return
-        filename_mode = {"monthly": "month", "yearly": "year"}.get(mode, mode)
-        destination = Path(output) if output else DATA_DIR / f"macro_{filename_mode}_forecast.json"
+        if mode not in ARTIFACT_FILENAMES:
+            raise ValueError(f"mode must be one of {', '.join(ARTIFACT_FILENAMES)}")
+        destination = DATA_DIR / ARTIFACT_FILENAMES[mode]
         payload = forecast_worker.remote(mode=mode, market_period=market_period,
                                          fred_api_key=os.getenv("FRED_API_KEY", ""),
                                          account_equity=account_equity,

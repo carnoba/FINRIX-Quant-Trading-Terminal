@@ -48,6 +48,11 @@ from macro_forecast_engine.trader_timemachine import (
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 CONFIG_PATH = DATA_DIR / "finrix_config.json"
+ARTIFACT_FILENAMES = {
+    "daily": "macro_daily_forecast.json",
+    "monthly": "macro_month_forecast.json",
+    "yearly": "macro_year_forecast.json",
+}
 CONFIG = load_config(CONFIG_PATH)
 INDICATOR_PARAMS = load_indicator_params()
 console = Console()
@@ -191,10 +196,7 @@ def banner() -> None:
 
 
 def artifact_path(mode: str) -> Path:
-    filename = {"monthly": "macro_month_forecast.json", "yearly": "macro_year_forecast.json"}.get(
-        mode, f"macro_{mode}_forecast.json"
-    )
-    return DATA_DIR / filename
+    return DATA_DIR / ARTIFACT_FILENAMES.get(mode, ARTIFACT_FILENAMES["monthly"])
 
 
 def run_forecast(mode: str, force: bool = True) -> dict[str, Any]:
@@ -221,7 +223,7 @@ def run_forecast(mode: str, force: bool = True) -> dict[str, Any]:
         error_title = "Modal Forecast Error"
     else:
         command = [sys.executable, "-m", "macro_forecast_engine.run_engine",
-                   "--mode", mode, "--environment", "local", "--output", str(path),
+                   "--mode", mode, "--environment", "local",
                    "--account-equity", str(CONFIG["account_equity"]),
                    "--risk-per-trade-pct", str(CONFIG["risk_per_trade_pct"])]
         status_text = f"⚡ Running {mode} forecast on Local CPU (Python Engine)..."

@@ -55,8 +55,10 @@ def _normalized_request(period: str, interval: str) -> tuple[str, str]:
 
 
 def _cache_path(interval: str) -> Path:
-    suffix = "1d" if interval.lower() in {"1d", "d"} else interval.lower()
-    return PROJECT_ROOT / "cache" / f"gold_cache_{suffix}.csv"
+    normalized = interval.lower()
+    suffix = "1d" if normalized in {"1d", "d"} else normalized
+    safe_suffix = re.sub(r"[^a-z0-9_-]", "", suffix) or "1d"
+    return PROJECT_ROOT / "cache" / f"gold_cache_{safe_suffix}.csv"
 
 
 def _load_cached_gold(interval: str) -> pd.DataFrame:

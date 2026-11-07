@@ -14,14 +14,17 @@ from .indicator_params import load_indicator_params
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = PROJECT_ROOT / "data" / "macro_month_forecast.json"
+ARTIFACT_FILENAMES = {
+    "daily": "macro_daily_forecast.json",
+    "monthly": "macro_month_forecast.json",
+    "yearly": "macro_year_forecast.json",
+}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the XAUUSD forecast engine.")
-    parser.add_argument("--mode", choices=("daily", "monthly", "yearly"), default="monthly")
+    parser.add_argument("--mode", choices=tuple(ARTIFACT_FILENAMES), default="monthly")
     parser.add_argument("--market-period", default="10y")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--environment", choices=("local", "modal"), default="local")
     parser.add_argument("--account-equity", type=float, default=1000.0)
     parser.add_argument("--risk-per-trade-pct", type=float, default=1.0)
@@ -49,15 +52,15 @@ def main() -> None:
             market_period=args.market_period,
             fred_api_key=fred_api_key,
         )
-    if args.output == DEFAULT_OUTPUT:
-        filename_mode = {"monthly": "month", "yearly": "year"}.get(args.mode, args.mode)
-        args.output = PROJECT_ROOT / "data" / f"macro_{filename_mode}_forecast.json"
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
+    # Resolve the artifact from a fixed allowlist rather than a user-supplied
+    # path, so the write target can never escape the project data directory.
+    output = PROJECT_ROOT / "data" / ARTIFACT_FILENAMES[args.mode]
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
         json.dumps(payload, indent=2, allow_nan=False),
         encoding="utf-8",
     )
-    _print_summary(payload, args.output)
+    _print_summary(payload, output)
 
 
 if __name__ == "__main__":
