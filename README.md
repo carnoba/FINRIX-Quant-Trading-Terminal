@@ -5,10 +5,57 @@
 > investment advice and does not execute live orders without a separately
 > installed and explicitly authorized broker bridge.
 
+[![CI Status](https://img.shields.io/github/actions/workflow/status/carnoba/trading-prediction/.github/workflows/ci.yml?label=CI&logo=github&color=blue)](https://github.com/carnoba/trading-prediction/actions/workflows/ci.yml)
+[![Pytest Pass](https://img.shields.io/badge/pytest-207%20passed-brightgreen.svg)](https://github.com/carnoba/trading-prediction/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100-rc1/)
-[![Modal GPU Sync](https://img.shields.io/badge/Modal-GPU%20A10G-orange.svg)](https://modal.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Execution: Local CPU | Modal A10G GPU](https://img.shields.io/badge/Execution-Local%20CPU%20%7C%20Modal%20A10G%20GPU-orange.svg)](macro_forecast_engine/)
+[![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Zero-Trust Audit PASSED](https://img.shields.io/badge/Audit-PASSED-brightgreen.svg)](FINRIX_SECURITY_AND_QA_AUDIT_REPORT.md)
 [![14-Strategy Engine](https://img.shields.io/badge/Strategies-14-brightgreen.svg)](macro_forecast_engine/)
+
+## System Architecture
+
+```mermaid
+graph TD
+    subgraph DI["Data Ingestion Layer"]
+        YF[yfinance<br/>GC=F, XAUUSD=X]
+        FRED[FRED API<br/>DFII10, DGS10-DGS2]
+        FINBERT[FinBERT NLP<br/>RSS Headlines]
+        COT[CFTC Positioning]
+        ETF[ETF Flows<br/>GLD, IAU]
+    end
+
+    subgraph EC["Dual Execution Core"]
+        CPU[Local Baseline CPU<br/>Lightweight Drift Execution]
+        MODAL[Modal A10G Cloud GPU<br/>NeuralForecast TFT Pipeline]
+    end
+
+    subgraph QE["Quantile Engine"]
+        TFT[Temporal Fusion Transformer<br/>q10/q50/q90 Outputs]
+        GBM[Sqrt-t GBM<br/>Diffusion Corridors]
+        MC[Monte Carlo<br/>100,000-path CUDA]
+    end
+
+    subgraph RE["Dynamic Risk Engine"]
+        KELLY[Kelly Criterion<br/>Fractional Allocation]
+        PIPS[Gold 100oz Contract Math<br/>SL/TP Closed-Trade]
+        DD[Drawdown Tracking<br/>Peak-to-Trough]
+    end
+
+    subgraph UI["Rich Terminal UI Output"]
+        RICH[Rich Console<br/>Interactive Menu]
+        PYQT[PyQt6<br/>Optional GUI]
+    end
+
+    DI --> EC
+    EC --> QE
+    QE --> RE
+    RE --> UI
+    CPU --> TFT
+    MODAL --> MC
+    DI --> TFT
+    DI --> MC
 
 ## One-Line Execution
 
@@ -138,6 +185,14 @@ macro_forecast_engine/
 ├── trader_timemachine.py # Strategy replay & confidence scoring
 ├── config.py
 ├── __init__.py
+.github/
+├── workflows/
+│   └── ci.yml            # GitHub Actions CI pipeline
+└── ISSUE_TEMPLATE/
+    ├── bug_report.md     # Bug report template
+    └── feature_request.md # Feature request template
+.github/PULL_REQUEST_TEMPLATE.md   # PR checklist template
+CONTRIBUTING.md            # Open-source guidelines
 requirements.txt
 .env.example
 README.md (this file)
