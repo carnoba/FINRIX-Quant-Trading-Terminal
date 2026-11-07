@@ -10,6 +10,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: '1'
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,6 +23,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install Linux System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-glx libegl1 libxkbcommon-x11-0 xvfb
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -26,7 +35,7 @@ jobs:
           pip install pytest pytest-cov
 
       - name: Run pytest suite
-        run: python -m pytest -q
+        run: xvfb-run python -m pytest -q
 
       - name: Compileall check
         run: python -m compileall -q app.py macro_forecast_engine
