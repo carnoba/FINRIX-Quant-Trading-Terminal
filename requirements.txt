@@ -1,6 +1,6 @@
 modal==0.73.0
 neuralforecast==1.7.5
-pyfredapi==0.4.3
+pyfredapi==0.10.2
 transformers==4.46.3
 torch==2.5.1
 pandas==2.2.3
