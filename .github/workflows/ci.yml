@@ -46,8 +46,8 @@ jobs:
             InquirerPy==0.3.4 \
             pytest pytest-cov
 
-      - name: Run pytest suite
-        run: xvfb-run -a python -m pytest -q
+      - name: Run Pytest with Coverage Report
+        run: xvfb-run -a python -m pytest -q --cov=macro_forecast_engine --cov-report=xml:coverage.xml
 
       - name: Compileall check
         run: python -m compileall -q app.py macro_forecast_engine
