@@ -7,6 +7,7 @@ import math
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,120 @@ ARTIFACT_FILENAMES = {
 CONFIG = load_config(CONFIG_PATH)
 INDICATOR_PARAMS = load_indicator_params()
 console = Console()
+
+
+@contextmanager
+def _status(message: str, spinner: str = "dots"):
+    """Show one status line, updating in place on a real terminal.
+
+    Rich's live display relies on ANSI cursor movement. In IDE consoles and
+    redirected output it can redraw the same text on a new line repeatedly, so
+    fall back to a single static line whenever stdout is not a TTY.
+    """
+    text = f"[green]{message}[/green]"
+    if console.is_terminal:
+        with console.status(text, spinner=spinner, transient=True, refresh_per_second=4):
+            yield
+    else:
+        console.print(text)
+        yield
+
+
+def _as_mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_records(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, pd.DataFrame):
+        value = value.to_dict("records")
+    if isinstance(value, dict):
+        if isinstance(value.get("records"), list):
+            value = value["records"]
+        elif value and all(isinstance(item, dict) for item in value.values()):
+            value = list(value.values())
+    if isinstance(value, list):
+        return [dict(row) for row in value if isinstance(row, dict)]
+    return []
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if math.isfinite(number) else default
+
+
+def _fmt_money(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    return f"${number:,.4f}" if math.isfinite(number) else "n/a"
+
+
+def _normalize_forecast_payload(payload: Any) -> dict[str, Any]:
+    """Coerce Modal/local artifacts into the schema the UI renders.
+
+    Older artifacts and partial Modal responses may expose ``forecast_df``,
+    ``volatility_corridors``, ``signals``, or ``diagnostics`` instead of (or
+    alongside) the current keys. Normalizing here keeps every renderer free of
+    KeyError/TypeError crashes.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("Forecast artifact must be a JSON object")
+    normalized = dict(payload)
+
+    forecast = _as_records(normalized.get("forecast"))
+    if not forecast:
+        forecast = _as_records(normalized.get("forecast_df"))
+    signals = normalized.get("signals")
+    if isinstance(signals, list):
+        for row, signal in zip(forecast, signals):
+            row.setdefault("signal_bias", str(signal))
+    elif isinstance(signals, dict):
+        for row in forecast:
+            if "signal_bias" not in row and row.get("date") in signals:
+                row["signal_bias"] = str(signals[row["date"]])
+    for row in forecast:
+        row.setdefault("date", "n/a")
+        row.setdefault("target_q50", 0.0)
+        row.setdefault("expected_low_q10", 0.0)
+        row.setdefault("expected_high_q90", 0.0)
+        row.setdefault("signal_bias", "neutral")
+    normalized["forecast"] = forecast
+
+    monte_carlo = _as_mapping(normalized.get("monte_carlo"))
+    corridors = normalized.get("volatility_corridors")
+    if isinstance(corridors, list) and corridors and isinstance(corridors[0], dict):
+        corridors = corridors[0]
+    corridors = _as_mapping(corridors)
+    for key in ("target_price", "target_low", "target_high"):
+        if key not in monte_carlo and key in corridors:
+            monte_carlo[key] = corridors[key]
+    if forecast:
+        monte_carlo.setdefault("target_price", forecast[0].get("target_q50"))
+        monte_carlo.setdefault("target_low", forecast[0].get("expected_low_q10"))
+        monte_carlo.setdefault("target_high", forecast[0].get("expected_high_q90"))
+    normalized["monte_carlo"] = monte_carlo
+
+    diagnostics = normalized.get("diagnostics", normalized.get("training"))
+    normalized["diagnostics"] = _as_mapping(diagnostics)
+    normalized["training"] = _as_mapping(normalized.get("training"))
+
+    for key in ("data", "risk_levels", "position_sizing", "smc",
+                "risk_configuration", "ingestion"):
+        normalized[key] = _as_mapping(normalized.get(key))
+    normalized.setdefault("mode", "unknown")
+    if not normalized.get("directional_bias"):
+        normalized["directional_bias"] = str(monte_carlo.get("directional_bias", "neutral"))
+    if normalized.get("confidence_score") is None:
+        normalized["confidence_score"] = monte_carlo.get("confidence_score", 0.0)
+    if not normalized.get("buy_zone"):
+        normalized["buy_zone"] = normalized["smc"].get("buy_zone", [])
+    if not normalized.get("sell_zone"):
+        normalized["sell_zone"] = normalized["smc"].get("sell_zone", [])
+    return normalized
 
 
 def refresh_config() -> dict[str, Any]:
@@ -213,25 +328,25 @@ def run_forecast(mode: str, force: bool = True) -> dict[str, Any]:
                 else "Local CPU"
             )
             if age_seconds < 900 and cached.get("execution_environment") == expected_environment:
-                return cached
-        except (OSError, json.JSONDecodeError):
+                return _normalize_forecast_payload(cached)
+        except (OSError, json.JSONDecodeError, ValueError):
             pass
     if CONFIG["execution_environment"] == "modal":
         command = [sys.executable, "-m", "modal", "run",
                    "macro_forecast_engine/modal_engine.py", "--mode", mode,
                    "--account-equity", str(CONFIG["account_equity"]),
                    "--risk-per-trade-pct", str(CONFIG["risk_per_trade_pct"])]
-        status_text = f"☁️ Running {mode} forecast on Modal A10G Cloud GPU..."
+        status_text = f"Running {mode} forecast on Modal A10G Cloud GPU..."
         error_title = "Modal Forecast Error"
     else:
         command = [sys.executable, "-m", "macro_forecast_engine.run_engine",
                    "--mode", mode, "--environment", "local",
                    "--account-equity", str(CONFIG["account_equity"]),
                    "--risk-per-trade-pct", str(CONFIG["risk_per_trade_pct"])]
-        status_text = f"⚡ Running {mode} forecast on Local CPU (Python Engine)..."
+        status_text = f"Running {mode} forecast on Local CPU (Python Engine)..."
         error_title = "Local Forecast Error"
     environment = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    with console.status(f"[green]{status_text}[/green]"):
+    with _status(status_text):
         completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True,
                                    encoding="utf-8", errors="replace", env=environment)
     if completed.returncode != 0:
@@ -243,50 +358,61 @@ def run_forecast(mode: str, force: bool = True) -> dict[str, Any]:
         )
     if not path.exists():
         raise FileNotFoundError(f"Forecast artifact was not created: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        artifact = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            f"Forecast artifact could not be parsed: {path} ({error})"
+        ) from error
+    return _normalize_forecast_payload(artifact)
 
 
 def print_execution_card(payload: dict[str, Any], equity: float) -> None:
-    risk = payload["risk_levels"]
-    sizing = payload["position_sizing"]
-    bias = payload["directional_bias"]
+    risk = _as_mapping(payload.get("risk_levels"))
+    sizing = _as_mapping(payload.get("position_sizing"))
+    bias = str(payload.get("directional_bias", "neutral")).lower()
     action = "BUY" if bias == "bullish" else "SELL" if bias == "bearish" else "NO TRADE (Wait for Zone)"
     table = Table(title="Today's Best Trade - Instant Execution Card", box=box.ASCII)
     table.add_column("Metric", style="green")
     table.add_column("Value", style="bold white")
     table.add_row("Recommended Action", action)
-    table.add_row("Ideal Entry Zone", str(risk["entry_zone"]))
-    table.add_row("Dynamic SL", f"${risk['stop_loss']:,.4f}")
-    table.add_row("TP1 / TP2 / TP3", " / ".join(f"${risk[key]:,.4f}" for key in
+    table.add_row("Ideal Entry Zone", str(risk.get("entry_zone", "n/a")))
+    table.add_row("Dynamic SL", _fmt_money(risk.get("stop_loss")))
+    table.add_row("TP1 / TP2 / TP3", " / ".join(_fmt_money(risk.get(key)) for key in
                                                 ("take_profit_1", "take_profit_2", "take_profit_3")))
-    table.add_row("Lot Size", f"{sizing['lot_size']:.2f} Lots ({sizing['ounces']:.1f} oz)")
-    table.add_row("Actual Risk", f"{sizing['actual_risk_pct']:.4f}%")
+    table.add_row("Lot Size", f"{_to_float(sizing.get('lot_size')):.2f} Lots "
+                              f"({_to_float(sizing.get('ounces')):.1f} oz)")
+    table.add_row("Actual Risk", f"{_to_float(sizing.get('actual_risk_pct')):.4f}%")
     if sizing.get("risk_warning"):
-        table.add_row("Risk Alert", sizing["risk_warning"])
-    table.add_row("Confidence", f"{payload['confidence_score']:.2f}%")
-    reward_ratio = float(risk.get("risk_reward", sizing.get("reward_risk", 0.0)))
+        table.add_row("Risk Alert", str(sizing["risk_warning"]))
+    table.add_row("Confidence", f"{_to_float(payload.get('confidence_score')):.2f}%")
+    reward_ratio = _to_float(risk.get("risk_reward", sizing.get("reward_risk", 0.0)))
     table.add_row("Risk : Reward", f"1 : {reward_ratio:.2f}")
     console.print(table)
 
 
 def show_forecast(payload: dict[str, Any]) -> None:
     refresh_config()
+    payload = _normalize_forecast_payload(payload)
+    data = payload["data"]
+    monte_carlo = payload["monte_carlo"]
+    risk = payload["risk_levels"]
     environment = "MODAL GPU" if CONFIG["execution_environment"] == "modal" else "LOCAL CPU"
     console.print(Panel(
-        f"[bold green]{payload['mode'].capitalize()}[/bold green] | "
-        f"{payload['data']['horizon']} business days | "
-        f"Engine: {environment} | Equity: ${CONFIG['account_equity']:,.2f} | "
-        f"Risk: {CONFIG['risk_per_trade_pct']:.2f}%\n"
-        f"Bias: {payload['directional_bias'].upper()} "
-        f"({payload['confidence_score']:.2f}%)\n"
-        f"Target: ${payload['monte_carlo']['target_price']:,.4f}  "
-        f"Corridor: ${payload['monte_carlo']['target_low']:,.4f} - "
-        f"${payload['monte_carlo']['target_high']:,.4f}\n"
-        f"SMC Buy: {payload['buy_zone']}  SMC Sell: {payload['sell_zone']}\n"
-        f"SL: ${payload['risk_levels']['stop_loss']:,.4f}  "
-        f"TP1/TP2/TP3: ${payload['risk_levels']['take_profit_1']:,.4f} / "
-        f"${payload['risk_levels']['take_profit_2']:,.4f} / "
-        f"${payload['risk_levels']['take_profit_3']:,.4f}",
+        f"[bold green]{str(payload.get('mode', 'unknown')).capitalize()}[/bold green] | "
+        f"{data.get('horizon', 'n/a')} business days | "
+        f"Engine: {environment} | Equity: ${_to_float(CONFIG.get('account_equity')):,.2f} | "
+        f"Risk: {_to_float(CONFIG.get('risk_per_trade_pct')):.2f}%\n"
+        f"Bias: {str(payload.get('directional_bias', 'neutral')).upper()} "
+        f"({_to_float(payload.get('confidence_score')):.2f}%)\n"
+        f"Target: {_fmt_money(monte_carlo.get('target_price'))}  "
+        f"Corridor: {_fmt_money(monte_carlo.get('target_low'))} - "
+        f"{_fmt_money(monte_carlo.get('target_high'))}\n"
+        f"SMC Buy: {payload.get('buy_zone', 'n/a')}  SMC Sell: {payload.get('sell_zone', 'n/a')}\n"
+        f"SL: {_fmt_money(risk.get('stop_loss'))}  "
+        f"TP1/TP2/TP3: {_fmt_money(risk.get('take_profit_1'))} / "
+        f"{_fmt_money(risk.get('take_profit_2'))} / "
+        f"{_fmt_money(risk.get('take_profit_3'))}",
         title="Forecast Overview",
         border_style="green", box=box.ASCII,
     ))
@@ -294,41 +420,52 @@ def show_forecast(payload: dict[str, Any]) -> None:
     for column in ("Date", "q10", "q50", "q90", "Signal"):
         table.add_column(column, justify="right" if column != "Signal" else "left")
     for row in payload["forecast"]:
-        table.add_row(row["date"], f"${row['expected_low_q10']:,.2f}",
-                      f"${row['target_q50']:,.2f}", f"${row['expected_high_q90']:,.2f}",
-                      row["signal_bias"].upper())
+        table.add_row(str(row.get("date", "n/a")),
+                      _fmt_money(row.get("expected_low_q10")),
+                      _fmt_money(row.get("target_q50")),
+                      _fmt_money(row.get("expected_high_q90")),
+                      str(row.get("signal_bias", "neutral")).upper())
     console.print(table)
 
 
 def today_signal() -> None:
     refresh_config()
-    payload = run_forecast("daily", force=False)
-    equity = CONFIG["account_equity"]
-    entry_zone = payload["risk_levels"]["entry_zone"]
-    entry = float(entry_zone[0] if payload["directional_bias"] == "bullish" else entry_zone[1])
+    payload = _normalize_forecast_payload(run_forecast("daily", force=False))
+    equity = _to_float(CONFIG.get("account_equity"))
+    forecast = payload["forecast"]
+    if not forecast:
+        raise ValueError("Forecast artifact does not contain any forecast rows")
+    bias = str(payload.get("directional_bias", "neutral")).lower()
+    risk = payload["risk_levels"]
+    entry_zone = risk.get("entry_zone")
+    if not isinstance(entry_zone, (list, tuple)) or len(entry_zone) < 2:
+        entry_zone = [forecast[0].get("expected_low_q10"), forecast[0].get("expected_high_q90")]
+    entry = _to_float(entry_zone[0] if bias == "bullish" else entry_zone[1])
     payload["risk_levels"] = build_execution_plan(
-        entry, payload["forecast"], payload["smc"], payload["directional_bias"],
+        entry, forecast, payload["smc"], bias,
     )
+    row = forecast[0]
     sizing = size_position(
         entry,
-        payload["forecast"][0]["expected_low_q10"],
-        payload["forecast"][0]["target_q50"],
-        payload["forecast"][0]["expected_high_q90"],
+        _to_float(row.get("expected_low_q10")),
+        _to_float(row.get("target_q50")),
+        _to_float(row.get("expected_high_q90")),
         equity,
-        risk_fraction=CONFIG["risk_per_trade_pct"] / 100.0,
+        risk_fraction=max(0.0, _to_float(CONFIG.get("risk_per_trade_pct"), 1.0)) / 100.0,
         kelly_fraction=0.25,
-        micro_lot_floor=CONFIG["micro_lot_floor"],
-        stop_loss=payload["risk_levels"]["stop_loss"],
+        micro_lot_floor=_to_float(CONFIG.get("micro_lot_floor"), 0.01),
+        stop_loss=_to_float(payload["risk_levels"].get("stop_loss")),
     )
     payload["position_sizing"] = sizing
     print_execution_card(payload, equity)
 
 
 def news_report() -> None:
-    with console.status("[green]Fetching macro news and FinBERT sentiment...[/green]"):
+    with _status("Fetching macro news and FinBERT sentiment..."):
         news = fetch_live_news()
-        sentiment_data = analyze_news_sentiment(news)
-        sentiment = sentiment_data["score"]
+        sentiment_data = _as_mapping(analyze_news_sentiment(news))
+        sentiment = _to_float(sentiment_data.get("score"), float("nan"))
+        velocity = _to_float(sentiment_data.get("velocity"), float("nan"))
     table = Table(title="Macro News & FinBERT", box=box.ROUNDED)
     table.add_column("Metric", style="green")
     table.add_column("Value")
@@ -336,8 +473,8 @@ def news_report() -> None:
     table.add_row("Hawkish / Dovish Score", f"{sentiment:+.4f}" if not pd.isna(sentiment) else "unavailable")
     table.add_row("Bias", "BULLISH" if sentiment > 0.05 else "BEARISH"
                   if sentiment < -0.05 else "NEUTRAL")
-    table.add_row("Sentiment Velocity", f"{sentiment_data['velocity']:+.4f}"
-                  if not pd.isna(sentiment_data["velocity"]) else "unavailable")
+    table.add_row("Sentiment Velocity", f"{velocity:+.4f}"
+                  if not pd.isna(velocity) else "unavailable")
     console.print(table)
     if not news.empty:
         for title in news["headline"].head(8).tolist():
@@ -348,19 +485,28 @@ def news_report() -> None:
 
 def execution_lookup() -> None:
     refresh_config()
-    payload = run_forecast("daily")
-    price = float(ask("Current market price ($)", str(payload["forecast"][0]["target_q50"])))
-    equity = CONFIG["account_equity"]
-    risk_percent = CONFIG["risk_per_trade_pct"]
-    plan = build_execution_plan(price, payload["forecast"], payload["smc"], payload["directional_bias"])
-    row = payload["forecast"][0]
-    sizing = size_position(price, row["expected_low_q10"], row["target_q50"],
-                           row["expected_high_q90"], equity,
+    payload = _normalize_forecast_payload(run_forecast("daily"))
+    forecast = payload["forecast"]
+    if not forecast:
+        raise ValueError("Forecast artifact does not contain any forecast rows")
+    row = forecast[0]
+    default_price = _to_float(row.get("target_q50"))
+    try:
+        price = float(ask("Current market price ($)", str(default_price)))
+    except (TypeError, ValueError) as error:
+        raise ValueError("Current market price must be numeric") from error
+    equity = _to_float(CONFIG.get("account_equity"))
+    risk_percent = _to_float(CONFIG.get("risk_per_trade_pct"), 1.0)
+    plan = build_execution_plan(price, forecast, payload["smc"],
+                                str(payload.get("directional_bias", "neutral")))
+    sizing = size_position(price, _to_float(row.get("expected_low_q10")),
+                           _to_float(row.get("target_q50")),
+                           _to_float(row.get("expected_high_q90")), equity,
                            risk_fraction=max(0.0, risk_percent) / 100.0,
                            kelly_fraction=0.25,
-                           micro_lot_floor=CONFIG["micro_lot_floor"],
-                           stop_loss=plan["stop_loss"])
-    sizing["pip_risk"] = round(abs(price - plan["stop_loss"]) / 0.10, 2)
+                           micro_lot_floor=_to_float(CONFIG.get("micro_lot_floor"), 0.01),
+                           stop_loss=_to_float(plan.get("stop_loss")))
+    sizing["pip_risk"] = round(abs(price - _to_float(plan.get("stop_loss"))) / 0.10, 2)
     payload["risk_levels"] = plan
     payload["position_sizing"] = sizing
     print_execution_card(payload, equity)
@@ -376,7 +522,7 @@ def backtester() -> None:
         f"[green]Selected timeframes:[/green] {', '.join(timeframes)}"
     )
     from macro_forecast_engine.data_loader import fetch_market_data
-    with console.status("[green]Loading historical XAUUSD data...[/green]"):
+    with _status("Loading historical XAUUSD data..."):
         frames = []
         for timeframe in timeframes:
             period, interval = TIMEFRAME_FETCH[timeframe]
@@ -385,13 +531,14 @@ def backtester() -> None:
                 "gold_open", "gold_high", "gold_low", "gold_close"
             ) if column in market]]
             frames.append((timeframe, normalize_timeframe_prices(market_prices, timeframe)))
-    result = pd.concat(
-        [run_strategy_matrix(
-            prices, strategies, [timeframe], INDICATOR_PARAMS,
-            CONFIG["account_equity"], CONFIG["risk_per_trade_pct"],
-        ) for timeframe, prices in frames],
-        ignore_index=True,
-    )
+    with _status("Replaying strategies across the selected timeframes..."):
+        result = pd.concat(
+            [run_strategy_matrix(
+                prices, strategies, [timeframe], INDICATOR_PARAMS,
+                CONFIG["account_equity"], CONFIG["risk_per_trade_pct"],
+            ) for timeframe, prices in frames],
+            ignore_index=True,
+        )
     table = Table(title="Lookahead-Safe Multi-Strategy / Multi-Timeframe Replay", box=box.ASCII)
     for column in ("Strategy", "Timeframe", "Win Rate %", "Profit Factor",
                    "Max Drawdown %", "Sharpe", "Net Expected Return %"):
@@ -430,7 +577,7 @@ def ensemble() -> None:
         if proceed not in {"y", "yes"}:
             console.print("[yellow]Cancelled; no Modal jobs were submitted.[/yellow]")
             return
-        with console.status("[green]Running parallel strategy ensemble on Modal A10G...[/green]"):
+        with _status("Running parallel strategy ensemble on Modal A10G..."):
             command = [sys.executable, "-m", "modal", "run",
                        "macro_forecast_engine/modal_engine.py", "--mode", "ensemble",
                        "--market-period", "5y",
@@ -445,7 +592,7 @@ def ensemble() -> None:
     else:
         from macro_forecast_engine.data_loader import fetch_market_data
         rows: list[dict[str, Any]] = []
-        with console.status("[green]Running local CPU strategy ensemble...[/green]"):
+        with _status("Running local CPU strategy ensemble..."):
             for timeframe in ("15m", "1h", "4h", "1D"):
                 period, interval = TIMEFRAME_FETCH[timeframe]
                 market = fetch_market_data(period, interval=interval)
@@ -461,13 +608,22 @@ def ensemble() -> None:
                     row["confidence"] = strategy_confidence(row)
                     rows.append(row)
         rows.sort(key=lambda row: (row["confidence"], row["net_expected_return"]), reverse=True)
+        if not rows:
+            raise ValueError("Local ensemble did not produce any strategy results")
         path.write_text(
             json.dumps(build_ensemble_payload(rows, "Local CPU"), indent=2, allow_nan=False),
             encoding="utf-8",
         )
     if not path.exists():
         raise FileNotFoundError(f"Ensemble artifact was not created: {path}")
-    report = json.loads(path.read_text(encoding="utf-8-sig"))
+    try:
+        report = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Ensemble artifact could not be parsed: {path} ({error})") from error
+    report = _as_mapping(report)
+    leaderboard = report.get("leaderboard")
+    if not isinstance(leaderboard, list) or not leaderboard:
+        raise ValueError("Ensemble artifact does not contain a strategy leaderboard")
     environment = CONFIG["execution_environment"]
     table_title = (
         "Modal A10G Top 5 Strategy Leaderboard"
@@ -480,12 +636,15 @@ def ensemble() -> None:
     table.add_column("Win Rate %", justify="right")
     table.add_column("Confidence %", justify="right")
     table.add_column("Net Return %", justify="right")
-    for rank, row in enumerate(report["leaderboard"][:5], 1):
-        table.add_row(str(rank), f"{row['strategy']} / {row['timeframe']}",
-                      f"{row['win_rate']:.2f}", f"{row['confidence']:.2f}",
-                      f"{row['net_expected_return']:.2f}")
+    for rank, raw_row in enumerate(leaderboard[:5], 1):
+        row = _as_mapping(raw_row)
+        table.add_row(str(rank),
+                      f"{row.get('strategy', 'unknown')} / {row.get('timeframe', 'n/a')}",
+                      f"{_to_float(row.get('win_rate')):.2f}",
+                      f"{_to_float(row.get('confidence')):.2f}",
+                      f"{_to_float(row.get('net_expected_return')):.2f}")
     console.print(table)
-    console.print(Panel(f"[bold green]Recommended strategy: {report['recommendation']}[/bold green]",
+    console.print(Panel(f"[bold green]Recommended strategy: {report.get('recommendation', 'n/a')}[/bold green]",
                         border_style="green"))
     console.print(
         f"[green]Account equity:[/green] ${CONFIG['account_equity']:,.2f} | "
@@ -495,6 +654,8 @@ def ensemble() -> None:
 
 def build_ensemble_payload(rows: list[dict[str, Any]], environment: str) -> dict[str, Any]:
     """Create a lightweight, JSON-safe leaderboard artifact."""
+    if not rows:
+        raise ValueError("Cannot build an ensemble payload without strategy rows")
     ranked = [
         {key: value for key, value in row.items() if key != "closed_trades"}
         for row in rows[:5]
@@ -503,7 +664,7 @@ def build_ensemble_payload(rows: list[dict[str, Any]], environment: str) -> dict
         "execution_environment": environment,
         "generated_at_utc": pd.Timestamp.now(tz="UTC"),
         "leaderboard": ranked,
-        "recommendation": f"{rows[0]['strategy']} / {rows[0]['timeframe']}",
+        "recommendation": f"{rows[0].get('strategy', 'unknown')} / {rows[0].get('timeframe', 'n/a')}",
     })
 
 
@@ -569,7 +730,10 @@ def main() -> None:
         try:
             clear_screen()
             if choice.startswith("[1]"):
-                today_signal()
+                try:
+                    today_signal()
+                except Exception as error:
+                    console.print(f"[bold red]Execution Error:[/bold red] {error}")
             elif choice.startswith("[2]"):
                 show_forecast(run_forecast("daily"))
             elif choice.startswith("[3]"):
@@ -592,7 +756,7 @@ def main() -> None:
             else:
                 console.print("[green][OK] Terminal session closed.[/green]")
                 return
-        except (ValueError, FileNotFoundError, RuntimeError, OSError) as error:
+        except Exception as error:
             console.print(Panel(f"[ERR] {error}", title="Operation Failed",
                                 border_style="red", box=box.ASCII))
         if questionary is not None:

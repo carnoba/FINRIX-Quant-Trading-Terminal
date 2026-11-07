@@ -11,6 +11,7 @@ import numpy as np
 
 from .modal_engine import _print_summary, _run_worker, forecast_worker
 from .indicator_params import load_indicator_params
+from .json_utils import _json_safe
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -57,7 +58,7 @@ def main() -> None:
     output = PROJECT_ROOT / "data" / ARTIFACT_FILENAMES[args.mode]
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
-        json.dumps(payload, indent=2, allow_nan=False),
+        json.dumps(_json_safe(payload), indent=2, allow_nan=False),
         encoding="utf-8",
     )
     _print_summary(payload, output)
