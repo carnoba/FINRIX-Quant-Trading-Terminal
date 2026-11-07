@@ -37,7 +37,7 @@ jobs:
         # transformers) is imported lazily, so the unit suite only needs the
         # lightweight runtime dependencies plus modal.
         run: |
-          pip install --no-cache-dir \
+          pip install --no-cache-dir --only-binary :all: \
             modal==0.73.0 \
             numpy==2.1.3 \
             pandas==2.2.3 \
