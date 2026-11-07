@@ -201,6 +201,8 @@ def artifact_path(mode: str) -> Path:
 
 def run_forecast(mode: str, force: bool = True) -> dict[str, Any]:
     refresh_config()
+    if mode not in ARTIFACT_FILENAMES:
+        raise ValueError(f"Unknown forecast mode: {mode}")
     path = artifact_path(mode)
     if not force and path.exists():
         try:

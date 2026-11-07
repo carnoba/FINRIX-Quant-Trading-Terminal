@@ -122,10 +122,11 @@ def fetch_market_data(period: str = "10y", interval: str = "1d") -> pd.DataFrame
     return frame.sort_index().ffill().dropna(subset=["gold_close"])
 
 
-def _fred_series(series_id: str, start_date: Optional[str], end_date: Optional[str]) -> pd.Series:
+def _fred_series(series_id: str, start_date: Optional[str], end_date: Optional[str],
+                 api_key: Optional[str] = None) -> pd.Series:
     params = {"id": series_id, "cosd": start_date or "", "coed": end_date or ""}
     url = "https://fred.stlouisfed.org/graph/fredgraph.csv"
-    api_key = os.getenv("FRED_API_KEY", "").strip()
+    api_key = (api_key or os.getenv("FRED_API_KEY", "")).strip()
     if api_key:
         url = "https://api.stlouisfed.org/fred/series/observations"
         params = {"series_id": series_id, "api_key": api_key, "file_type": "json",
@@ -144,12 +145,16 @@ def _fred_series(series_id: str, start_date: Optional[str], end_date: Optional[s
     return pd.to_numeric(series, errors="coerce").rename(series_id).dropna()
 
 
-def fetch_macro_data(start_date: str, end_date: str) -> pd.DataFrame:
+def fetch_macro_data(start_date: str, end_date: str,
+                     fred_api_key: Optional[str] = None) -> pd.DataFrame:
     """Fetch TIPS real yields and the 10Y-2Y Treasury curve spread."""
     result = pd.DataFrame(index=pd.date_range(start_date, end_date, freq="D"))
     for series_id, name in (("DFII10", "tips10y"), ("DGS10", "ust10y"), ("DGS2", "ust2y")):
         try:
-            result = result.join(_fred_series(series_id, start_date, end_date), how="left")
+            result = result.join(
+                _fred_series(series_id, start_date, end_date, api_key=fred_api_key),
+                how="left",
+            )
         except (requests.RequestException, ValueError, KeyError):
             result[name] = np.nan
     if "DGS10" in result and "DGS2" in result:

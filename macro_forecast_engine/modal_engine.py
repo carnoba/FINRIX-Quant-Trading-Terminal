@@ -386,11 +386,13 @@ def _run_worker(
 ) -> dict[str, Any]:
     if mode not in HORIZONS:
         raise ValueError(f"mode must be one of {', '.join(HORIZONS)}")
-    if fred_api_key:
-        os.environ["FRED_API_KEY"] = fred_api_key
     now = pd.Timestamp.now(tz="UTC")
     market = fetch_market_data(market_period)
-    macro = fetch_macro_data(market.index.min().date().isoformat(), market.index.max().date().isoformat())
+    macro = fetch_macro_data(
+        market.index.min().date().isoformat(),
+        market.index.max().date().isoformat(),
+        fred_api_key=fred_api_key,
+    )
     cot = fetch_cot_data()
     news = fetch_live_news()
     features = build_feature_frame(market, macro, cot, news)
