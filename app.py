@@ -69,7 +69,7 @@ def _status(message: str, spinner: str = "dots"):
     """
     text = f"[green]{message}[/green]"
     if console.is_terminal:
-        with console.status(text, spinner=spinner, transient=True, refresh_per_second=4):
+        with console.status(text, spinner=spinner, refresh_per_second=4):
             yield
     else:
         console.print(text)
