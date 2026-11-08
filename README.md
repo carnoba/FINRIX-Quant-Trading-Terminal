@@ -1,4 +1,4 @@
-<img width="283" height="304" alt="Screenshot 2026-11-08 105821" src="https://github.com/user-attachments/assets/78bf1287-79e9-49ed-a13d-df565b70f977" /># FINRIX XAUUSD Quant Trading Terminal
+# FINRIX XAUUSD Quant Trading Terminal
 
 > **Status: Research Prototype / Quantitative Framework.** FINRIX supports
 > reproducible market research, forecasting, and backtesting. It is not
