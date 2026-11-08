@@ -15,7 +15,8 @@
 [![14-Strategy Engine](https://img.shields.io/badge/Strategies-14-brightgreen.svg)](macro_forecast_engine/)
 
 
-<img width="472" height="240" alt="finrix" src="https://github.com/user-attachments/assets/00005a62-75fc-471b-8422-36b10ddb2139" />
+
+https://github.com/user-attachments/assets/c9ebe2bb-a126-4b1f-8cd5-1a2945c6e98b
 
 
 
