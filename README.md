@@ -14,48 +14,10 @@
 [![Zero-Trust Audit PASSED](https://img.shields.io/badge/Audit-PASSED-brightgreen.svg)](FINRIX_SECURITY_AND_QA_AUDIT_REPORT.md)
 [![14-Strategy Engine](https://img.shields.io/badge/Strategies-14-brightgreen.svg)](macro_forecast_engine/)
 
-## System Architecture
 
-```mermaid
-graph TD
-    subgraph DI["Data Ingestion Layer"]
-        YF[yfinance<br/>GC=F, XAUUSD=X]
-        FRED[FRED API<br/>DFII10, DGS10-DGS2]
-        FINBERT[FinBERT NLP<br/>RSS Headlines]
-        COT[CFTC Positioning]
-        ETF[ETF Flows<br/>GLD, IAU]
-    end
+<img width="240" height="534" alt="1108 (1) (1)" src="https://github.com/user-attachments/assets/8454fd1a-3d77-4931-96c0-4168ce4cf8a6" />
 
-    subgraph EC["Dual Execution Core"]
-        CPU[Local Baseline CPU<br/>Lightweight Drift Execution]
-        MODAL[Modal A10G Cloud GPU<br/>NeuralForecast TFT Pipeline]
-    end
 
-    subgraph QE["Quantile Engine"]
-        TFT[Temporal Fusion Transformer<br/>q10/q50/q90 Outputs]
-        GBM[Sqrt-t GBM<br/>Diffusion Corridors]
-        MC[Monte Carlo<br/>100,000-path CUDA]
-    end
-
-    subgraph RE["Dynamic Risk Engine"]
-        KELLY[Kelly Criterion<br/>Fractional Allocation]
-        PIPS[Gold 100oz Contract Math<br/>SL/TP Closed-Trade]
-        DD[Drawdown Tracking<br/>Peak-to-Trough]
-    end
-
-    subgraph UI["Rich Terminal UI Output"]
-        RICH[Rich Console<br/>Interactive Menu]
-        PYQT[PyQt6<br/>Optional GUI]
-    end
-
-    DI --> EC
-    EC --> QE
-    QE --> RE
-    RE --> UI
-    CPU --> TFT
-    MODAL --> MC
-    DI --> TFT
-    DI --> MC
 
 ## One-Line Execution
 
