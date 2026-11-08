@@ -1,4 +1,4 @@
-# FINRIX XAUUSD Quant Trading Terminal
+<img width="283" height="304" alt="Screenshot 2026-11-08 105821" src="https://github.com/user-attachments/assets/78bf1287-79e9-49ed-a13d-df565b70f977" /># FINRIX XAUUSD Quant Trading Terminal
 
 > **Status: Research Prototype / Quantitative Framework.** FINRIX supports
 > reproducible market research, forecasting, and backtesting. It is not
@@ -160,6 +160,17 @@ Run the checks with:
 python -m pytest -q
 python -m compileall -q app.py macro_forecast_engine
 ```
+
+Finrix Screenshots:
+
+<img width="283" height="304" alt="Screenshot 2026-11-08 105821" src="https://github.com/user-attachments/assets/919fb0d2-2d04-4172-a401-9f4caab112c7" />
+<img width="282" height="281" alt="Screenshot 2026-11-08 105740" src="https://github.com/user-attachments/assets/d5558b17-58df-434c-9fda-0e8376d08090" />
+<img width="275" height="259" alt="Screenshot 2026-11-08 105707" src="https://github.com/user-attachments/assets/c11f30cd-bc4c-45fa-9ffa-6ab9fde55a88" />
+<img width="276" height="128" alt="Screenshot 2026-11-07 225107" src="https://github.com/user-attachments/assets/b0487285-9d31-4dd7-8191-e7b53a166eeb" />
+<img width="285" height="529" alt="Screenshot 2026-11-07 225031" src="https://github.com/user-attachments/assets/894637f0-90d2-4c23-9465-83352218779e" />
+
+
+
 
 ## Future Roadmap
 
