@@ -5,17 +5,9 @@
 > investment advice and does not execute live orders without a separately
 > installed and explicitly authorized broker bridge.
 
-[![CI Status](https://img.shields.io/github/actions/workflow/status/carnoba/trading-prediction/.github/workflows/ci.yml?label=CI&logo=github&color=blue)](https://github.com/carnoba/trading-prediction/actions/workflows/ci.yml)
-[![Pytest Pass](https://img.shields.io/badge/pytest-207%20passed-brightgreen.svg)](https://github.com/carnoba/trading-prediction/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100-rc1/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Execution: Local CPU | Modal A10G GPU](https://img.shields.io/badge/Execution-Local%20CPU%20%7C%20Modal%20A10G%20GPU-orange.svg)](macro_forecast_engine/)
-[![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![Zero-Trust Audit PASSED](https://img.shields.io/badge/Audit-PASSED-brightgreen.svg)](FINRIX_SECURITY_AND_QA_AUDIT_REPORT.md)
-[![14-Strategy Engine](https://img.shields.io/badge/Strategies-14-brightgreen.svg)](macro_forecast_engine/)
-[![PyPI version](https://img.shields.io/pypi/v/finrix.svg?color=blue)](https://pypi.org/project/finrix/)
-[![Python Versions](https://img.shields.io/pypi/pyversions/finrix.svg)](https://pypi.org/project/finrix/)
-[![PyPI Downloads](https://img.shields.io/pypi/dm/finrix.svg?color=green)](https://pypi.org/project/finrix/)
+[![PyPI](https://img.shields.io/badge/PyPI-v1.0.0-blue?style=flat&logo=pypi)](https://pypi.org/project/finrix/)
+[![Pytest](https://img.shields.io/badge/pytest-207%20passed-brightgreen)](https://github.com/carnoba/FINRIX-Quant-Trading-Terminal)
+[![License](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
 
 
 
