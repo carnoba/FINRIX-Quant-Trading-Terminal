@@ -13,9 +13,30 @@
 [![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Zero-Trust Audit PASSED](https://img.shields.io/badge/Audit-PASSED-brightgreen.svg)](FINRIX_SECURITY_AND_QA_AUDIT_REPORT.md)
 [![14-Strategy Engine](https://img.shields.io/badge/Strategies-14-brightgreen.svg)](macro_forecast_engine/)
+[![PyPI version](https://img.shields.io/pypi/v/finrix.svg)](https://pypi.org/project/finrix/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/finrix.svg)](https://pypi.org/project/finrix/)
+[![Downloads](https://pepy.tech/badge/finrix)](https://pepy.tech/project/finrix)
 
 
 
+
+
+
+## ⚡ Quick Start & Installation
+
+FINRIX is available directly on PyPI as an executable CLI package:
+
+```bash
+pip install finrix
+```
+
+Launch the interactive quantitative terminal from any command prompt:
+
+```bash
+finrix
+```
+
+`pip install finrix` installs the complete XAUUSD quantitative forecasting terminal, including local CPU baseline execution, Modal A10G cloud GPU pipeline integration, 14-strategy backtesting, and FinBERT macro sentiment analysis.
 
 
 https://github.com/user-attachments/assets/b600ad35-9752-46c7-a912-12deb9714708
