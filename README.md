@@ -13,9 +13,9 @@
 [![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Zero-Trust Audit PASSED](https://img.shields.io/badge/Audit-PASSED-brightgreen.svg)](FINRIX_SECURITY_AND_QA_AUDIT_REPORT.md)
 [![14-Strategy Engine](https://img.shields.io/badge/Strategies-14-brightgreen.svg)](macro_forecast_engine/)
-[![PyPI version](https://img.shields.io/pypi/v/finrix.svg)](https://pypi.org/project/finrix/)
+[![PyPI version](https://img.shields.io/pypi/v/finrix.svg?color=blue)](https://pypi.org/project/finrix/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/finrix.svg)](https://pypi.org/project/finrix/)
-[![Downloads](https://pepy.tech/badge/finrix)](https://pepy.tech/project/finrix)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/finrix.svg?color=green)](https://pypi.org/project/finrix/)
 
 
 
