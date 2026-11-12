@@ -83,6 +83,9 @@ def build_execution_plan(
         targets = [float(np.quantile(mids, quantile)) for quantile in (0.75, 0.5, 0.25)]
         targets = [min(entry, target) for target in targets]
     # --- Compute risk / reward from entry_mid ---
+    # entry_mid is initialized unconditionally before the if/elif/else block
+    # as (entry_low + entry_high) / 2.0, but recompute here for safety:
+    entry_mid = (entry_low + entry_high) / 2.0
     sl_price = float(stop)
     tp1_price = float(targets[0])
     sl_distance = abs(sl_price - entry_mid)
@@ -90,7 +93,7 @@ def build_execution_plan(
     risk_reward = tp1_distance / max(sl_distance, 1e-9)
 
     # --- Lot sizing & Actual Risk % (reflects 0.01 minimum lot floor) ---
-    lot_size = max(0.01, account_equity * 0.01 / (sl_distance * 100.0))
+    lot_size = max(0.01, account_equity * 0.01 / max(sl_distance, 1e-9) / 100.0)
 
     return {
         "side": "long" if bullish else "short",
