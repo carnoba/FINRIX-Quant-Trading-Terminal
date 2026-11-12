@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "finrix"
-version = "1.0.1"
+version = "1.0.2"
 description = "FINRIX Quantitative Trading Terminal — XAUUSD macro forecast engine with Rich CLI"
 requires-python = ">=3.11"
 dependencies = [
@@ -36,6 +36,9 @@ classifiers = [
 
 [project.scripts]
 finrix = "app:main"
+
+[tool.setuptools]
+py-modules = ["app"]
 
 [tool.setuptools.packages.find]
 include = ["macro_forecast_engine*"]
