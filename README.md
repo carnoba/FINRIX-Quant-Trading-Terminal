@@ -5,7 +5,7 @@
 > investment advice and does not execute live orders without a separately
 > installed and explicitly authorized broker bridge.
 
-[![PyPI](https://img.shields.io/badge/PyPI-v1.0.5-blue?style=flat&logo=pypi)](https://pypi.org/project/finrix/)
+[![PyPI](https://img.shields.io/badge/PyPI-v1.0.6-blue?style=flat&logo=pypi)](https://pypi.org/project/finrix/)
 [![Pytest](https://img.shields.io/badge/pytest-207%20passed-brightgreen)](https://github.com/carnoba/FINRIX-Quant-Trading-Terminal)
 [![License](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
 
