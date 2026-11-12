@@ -30,7 +30,12 @@ def build_execution_plan(
     if not forecast:
         raise ValueError("forecast must contain at least one path point")
     entry = float(entry)
-    bullish = bias.lower() == "bullish"
+    # Safe defaults so entry_low/entry_high are never UnboundLocalError
+    entry_low = entry
+    entry_high = entry
+    bias_lower = bias.lower()
+    neutral = bias_lower not in {"bullish", "bearish"}
+    bullish = bias_lower == "bullish"
     lows = np.array([float(row["expected_low_q10"]) for row in forecast])
     mids = np.array([float(row["target_q50"]) for row in forecast])
     highs = np.array([float(row["expected_high_q90"]) for row in forecast])
@@ -64,10 +69,15 @@ def build_execution_plan(
              if entry * (1.0 - MAX_LOCAL_STRUCTURE_DISTANCE) <= level < entry),
             default=entry,
         )
-        # Tight stop based on entry_mid structure, not full corridor
+        # Use the unconditionally initialized entry_low/entry_high
         stop = min(entry - buffer, structural_stop - buffer if structural_stop < entry else entry - buffer)
         targets = [float(np.quantile(mids, quantile)) for quantile in (0.75, 0.5, 0.25)]
         targets = [max(entry, target) for target in targets]
+        # Adjust entry zone to include trade anchors while keeping it centered
+        entry_low = min(entry_low, float(fvg.get("low", entry)))
+        entry_high = max(entry_high, float(liquidity.get("ssl", entry)))
+        if entry_low > entry_high:
+            entry_low, entry_high = entry_high, entry_low
     else:
         local_levels = [
             float(fvg.get("high", entry)),
@@ -82,6 +92,11 @@ def build_execution_plan(
         stop = max(entry + buffer, structural_stop + buffer if structural_stop > entry else entry + buffer)
         targets = [float(np.quantile(mids, quantile)) for quantile in (0.75, 0.5, 0.25)]
         targets = [min(entry, target) for target in targets]
+        # Adjust entry zone to include trade anchors while keeping it centered
+        entry_low = min(entry_low, float(fvg.get("high", entry)))
+        entry_high = max(entry_high, float(liquidity.get("bsl", entry)))
+        if entry_low > entry_high:
+            entry_low, entry_high = entry_high, entry_low
     # --- Compute risk / reward from entry_mid ---
     # entry_mid is initialized unconditionally before the if/elif/else block
     # as (entry_low + entry_high) / 2.0, but recompute here for safety:
