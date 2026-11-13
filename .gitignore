@@ -13,3 +13,5 @@ data/*.json
 data/*.csv
 cache/
 results/
+!FINRIX_Institutional_Project_Report.docx
+!FINRIX_Institutional_Project_Report.pdf
