@@ -185,7 +185,7 @@ macro_forecast_engine/
     └── feature_request.md # Feature request template
 .github/PULL_REQUEST_TEMPLATE.md   # PR checklist template
 CONTRIBUTING.md    # Open-source guidelines
-FINRIX_Institutional_Project_Report.docx   # Project Report
+FINRIX_Project_Report.docx   # Project Report
 requirements.txt
 .env.example
 README.md (this file)
