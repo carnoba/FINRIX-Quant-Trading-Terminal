@@ -110,7 +110,7 @@ Live RSS headlines processed via **FinBERT** NLP model with dovish/hawkish net s
 | **1** | Instant Execution Card -- Kelly Position Sizing, dynamic Entry bounds, Dynamic SL (exact pip distance), Risk:Reward ratios |
 | **2** | Daily Price Path & Signals -- 30-day forward forecast with quantile monotonicity ($q_{10} \le q_{50} \le q_{90}$) |
 | **3** | Monthly Macro Horizon -- 22-day outlook & weekly pivots with dynamic bias calculation |
-| **4** | Yearly Regime Trend Shift -- 252-day forecast with volatility envelopes, $q_{90}$ capped at 6500 |
+| **4** | Yearly Regime Trend Shift -- 252-day forecast with volatility envelopes.|
 | **5** | Macro News & FinBERT Sentiment -- Live RSS headline aggregation, Dovish/Hawkish score cancellation |
 | **6** | Risk & Position Sizing Calculator -- Custom market price overrides, pip distance math, zero static hardcoded outputs |
 | **7** | Historical Strategy Backtester -- All 14 strategies across 15m, 1h, 4h, 1D timeframes, dynamic lot sizing |
